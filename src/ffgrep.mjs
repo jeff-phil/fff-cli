@@ -1,0 +1,326 @@
+#!/usr/bin/env node
+/**
+ * Standalone CLI wrapper around @ff-labs/fff-node for command-line grep.
+ *
+ * Usage:
+ *   ffgrep <pattern> [options]
+ */
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { homedir } from 'node:os';
+
+const SRC_DIR = path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)));
+const { resolveFffNode } = await import(path.join(SRC_DIR, 'resolve-fff.mjs'));
+const { createStore } = await import(path.join(SRC_DIR, 'cursor-store.mjs'));
+const {
+  ipcAvailable, dslGrep, serialiseCursor, getSockPath,
+} = await import(path.join(SRC_DIR, 'ipc-client.mjs'));
+
+const { FileFinder } = await resolveFffNode();
+const NAME = path.basename(process.argv[1] || 'ffgrep.mjs');
+const cursors = createStore('ffgrep-cu' + 'rsors.json');
+
+// ---------------------------------------------------------------------------
+// DB path resolution
+// ---------------------------------------------------------------------------
+
+function resolveDbPaths(basePath) {
+  let frecencyDbPath = process.env.FFF_FRECENCY_DB ?? undefined;
+  let historyDbPath = process.env.FFF_HISTORY_DB ?? undefined;
+
+  if (!frecencyDbPath) {
+    const autoBase = path.join(basePath, '.local/share/fff/frecency');
+    try { if (fs.statSync(autoBase).isDirectory()) frecencyDbPath = autoBase; } catch {}
+  }
+  if (!frecencyDbPath) {
+    const autoHome = path.join(homedir(), '.local/share/fff/frecency');
+    try { if (fs.statSync(autoHome).isDirectory()) frecencyDbPath = autoHome; } catch {}
+  }
+  if (!historyDbPath) {
+    const autoBase = path.join(basePath, '.local/share/fff/history');
+    try { if (fs.statSync(autoBase).isDirectory()) historyDbPath = autoBase; } catch {}
+  }
+  if (!historyDbPath) {
+    const autoHome = path.join(homedir(), '.local/share/fff/history');
+    try { if (fs.statSync(autoHome).isDirectory()) historyDbPath = autoHome; } catch {}
+  }
+  return { frecencyDbPath, historyDbPath };
+}
+
+// ---------------------------------------------------------------------------
+// Argument parsing
+// ---------------------------------------------------------------------------
+
+function showHelp(exitCode = 0) {
+  const sink = exitCode === 0 ? console.log : console.error;
+  sink(`Usage: ${NAME} <pattern> [options]`);
+  sink('Options:');
+  sink('  --constraints <...>   Path constraints');
+  sink('  --ignore-case         Case-insensitive');
+  sink('  --regex               Force regex');
+  sink('  --literal             Force literal');
+  sink('  --context <N>         Context lines');
+  sink('  --limit <N>           Max matches per file, capped at 50 (default: 100)');
+  sink('  --cursor <id>         Page number (default: 1)');
+  sink('  --base <path>         Base directory');
+  sink('  --frecency-db <path>  Frecency DB');
+  sink('  --history-db <path>   History DB');
+  sink('  --help                Show this message');
+  process.exit(exitCode);
+}
+
+function parseArgs(argv) {
+  const result = {
+    pattern: undefined, basePath: undefined, constraints: undefined,
+    ignoreCase: false, literal: undefined, context: 0,
+    limit: 100, cursor: undefined,
+    frecencyDbPath: undefined, historyDbPath: undefined,
+  };
+  const remaining = [];
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    switch (arg) {
+      case '--help': showHelp(); break;
+      case '--constraints': result.constraints = argv[++i]; break;
+      case '--ignore-case': result.ignoreCase = true; break;
+      case '--regex': result.literal = false; break;
+      case '--literal': result.literal = true; break;
+      case '--context': result.context = parseInt(argv[++i], 10); break;
+      case '--limit': result.limit = parseInt(argv[++i], 10); break;
+      case '--cursor': result.cursor = argv[++i]; break;
+      case '--base': result.basePath = argv[++i]; break;
+      case '--frecency-db': result.frecencyDbPath = argv[++i]; break;
+      case '--history-db': result.historyDbPath = argv[++i]; break;
+      default:
+        if (arg.startsWith('-')) { console.error(`${NAME}: unknown option: ${arg}`); process.exit(1); }
+        remaining.push(arg);
+    }
+  }
+  if (remaining.length > 0) {
+    result.pattern = remaining[0];
+    if (remaining.length > 1 && !result.basePath) result.basePath = remaining[1];
+  }
+  if (!result.basePath) result.basePath = process.cwd();
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Query building
+// ---------------------------------------------------------------------------
+
+function normalizePathConstraint(s) {
+  let t = s.trim();
+  if (!t || t === '.' || t === './') return null;
+  if (t.startsWith('./')) t = t.slice(2);
+  const m = t.match(/^(.*)\/\*\*(?:\/\*)?$/);
+  if (m && m[1] && !/[*?[{]/.test(m[1])) return `${m[1]}/`;
+  if (t.startsWith('/') || t.endsWith('/')) return t;
+  if (/[*?[{]/.test(t)) return t;
+  const last = t.split('/').pop() ?? '';
+  if (/\.[a-zA-Z][a-zA-Z0-9]{0,9}$/.test(last)) return t;
+  return `${t}/`;
+}
+
+function buildQuery(constraints, pattern) {
+  const parts = [];
+  if (constraints) {
+    for (const term of constraints.split(/[,\s]+/).map(s => s.trim()).filter(Boolean)) {
+      const neg = term.startsWith('!');
+      const raw = neg ? term.slice(1) : term;
+      const n = normalizePathConstraint(raw);
+      if (n) parts.push(neg ? `!${n}` : n);
+    }
+  }
+  parts.push(pattern);
+  return parts.join(' ');
+}
+
+function resolveGrepMode(pattern, literal) {
+  if (literal === true) return 'plain';
+  if (literal === false) return 'regex';
+  const hasMeta = pattern !== pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (hasMeta) { try { new RegExp(pattern); return 'regex'; } catch { return 'plain'; } }
+  return 'plain';
+}
+
+// ---------------------------------------------------------------------------
+// Output formatting
+// ---------------------------------------------------------------------------
+
+const GREP_MAX_LINE_LENGTH = 500;
+function truncateLine(line, max = GREP_MAX_LINE_LENGTH) {
+  const t = line.trim();
+  return t.length <= max ? t : `${t.slice(0, max)}...`;
+}
+function fffFileAnnotation(item) {
+  const g = item.gitStatus;
+  return (g && g !== 'clean' && g !== 'unknown' && g !== '') ? `  [${g} in git]` : '';
+}
+function formatGrepOutput(result) {
+  if (result.items.length === 0) return 'No matches found';
+  const lines = [];
+  let currentFile = '';
+  for (const match of result.items) {
+    if (match.relativePath !== currentFile) {
+      if (lines.length > 0) lines.push('');
+      currentFile = match.relativePath;
+      lines.push(`${currentFile}${fffFileAnnotation(match)}`);
+    }
+    if (!match.contextBefore && !match.contextAfter) {
+      lines.push(` ${match.lineNumber}: ${truncateLine(match.lineContent)}`);
+      continue;
+    }
+    match.contextBefore?.forEach((line, i) => {
+      const ln = match.lineNumber - match.contextBefore.length + i;
+      lines.push(` ${ln}- ${truncateLine(line)}`);
+    });
+    lines.push(` ${match.lineNumber}: ${truncateLine(match.lineContent)}`);
+    match.contextAfter?.forEach((line, i) => {
+      const ln = match.lineNumber + 1 + i;
+      lines.push(` ${ln}- ${truncateLine(line)}`);
+    });
+  }
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Wildcard guard
+// ---------------------------------------------------------------------------
+
+function isWildcardOnly(pattern) {
+  const p = pattern.trim();
+  const hasMeta = p !== p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return hasMeta && /^(?:[.^$]*(?:[.][*+?]|\*|\+)[.^$]*|[.^$\s]*|\.*\??|\.*[*+?]?|\.+|\*|\?)$/.test(p);
+}
+
+// ---------------------------------------------------------------------------
+// Local fallback
+// ---------------------------------------------------------------------------
+
+async function runLocal(args) {
+  console.log(`→ Creating FileFinder for: ${args.basePath}`);
+  const { frecencyDbPath, historyDbPath } = resolveDbPaths(args.basePath);
+  const finderResult = FileFinder.create({
+    basePath: args.basePath, aiMode: true,
+    frecencyDbPath: args.frecencyDbPath ?? frecencyDbPath,
+    historyDbPath: args.historyDbPath ?? historyDbPath,
+  });
+  if (!finderResult.ok) { console.error('Failed:', finderResult.error); process.exit(1); }
+  const finder = finderResult.value;
+
+  console.log('→ Waiting for scan...');
+  const scanDone = await finder.waitForScan(30000);
+  if (!scanDone.ok || !scanDone.value) console.warn('Scan timeout, proceeding...');
+  const progress = finder.getScanProgress();
+  if (progress.ok) console.log(`  Indexed ${progress.value.scannedFilesCount} files${progress.value.isScanning ? ' (scanning...)' : ''}`);
+  const dbInfo = [];
+  if (args.frecencyDbPath ?? frecencyDbPath) dbInfo.push('frecency');
+  if (args.historyDbPath ?? historyDbPath) dbInfo.push('history');
+  if (dbInfo.length > 0) console.log(`  Using DBs: ${dbInfo.join(', ')}`);
+
+  if (isWildcardOnly(args.pattern)) {
+    console.error(`Pattern '${args.pattern}' matches everything — provide a concrete substring or identifier.`);
+    process.exit(1);
+  }
+
+  const mode = resolveGrepMode(args.pattern, args.literal);
+  const query = buildQuery(args.constraints, args.pattern);
+  console.log(`→ Grepping: "${query}" (mode: ${mode})`);
+
+  const queryKey = cursors.makeQueryKey(args.pattern, args.constraints, args.limit);
+  const pageNum = parseInt(args.cursor || '1', 10);
+  const stored = cursors.retrieve(queryKey, pageNum);
+  let nativeCursor = null;
+
+  if (pageNum === 1) nativeCursor = null;
+  else {
+    if (!stored) {
+      console.error(`Cursor ${pageNum} not found for this query. Run without --cursor first, or use a valid page number.`);
+      process.exit(1);
+    }
+    nativeCursor = { __brand: 'GrepCursor', _offset: stored.offset };
+  }
+
+  const grepResult = finder.grep(query, {
+    mode, smartCase: !args.ignoreCase,
+    maxMatchesPerFile: Math.min(Math.max(1, args.limit), 50),
+    cursor: nativeCursor,
+    beforeContext: args.context, afterContext: args.context,
+    classifyDefinitions: true,
+  });
+  if (!grepResult.ok) { console.error('Grep failed:', grepResult.error); process.exit(1); }
+  return grepResult.value;
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+const args = parseArgs(process.argv.slice(2));
+if (!args.pattern) showHelp(1);
+
+const mode = resolveGrepMode(args.pattern, args.literal);
+const query = buildQuery(args.constraints, args.pattern);
+
+let result;
+let viaDaemon = false;
+
+const daemonOk = await ipcAvailable();
+if (daemonOk) {
+  try {
+    console.log(`→ [via daemon ${getSockPath()}] Grepping: "${query}" (mode: ${mode})`);
+    viaDaemon = true;
+    const queryKey = cursors.makeQueryKey(args.pattern, args.constraints, args.limit);
+    const pageNum = parseInt(args.cursor || '1', 10);
+    const stored = cursors.retrieve(queryKey, pageNum);
+    let cursorRaw = null;
+    if (pageNum !== 1) {
+      if (!stored) {
+        console.error(`Cursor ${pageNum} not found for this query. Run without --cursor first, or use a valid page number.`);
+        process.exit(1);
+      }
+      cursorRaw = { _offset: stored.offset };
+    }
+    result = await dslGrep(query, {
+      mode,
+      smartCase: !args.ignoreCase,
+      limit: args.limit,
+      cursorRaw,
+      beforeContext: args.context,
+      afterContext: args.context,
+    });
+  } catch (e) {
+    console.warn('Daemon request failed, falling back to local:', e.message);
+    result = null;
+    viaDaemon = false;
+  }
+}
+
+if (!result) {
+  result = await runLocal(args);
+}
+
+let output = formatGrepOutput(result);
+const notices = [];
+if (result.regexFallbackError) notices.push(`Invalid regex: ${result.regexFallbackError}, used literal match`);
+if (result.nextCursor || result.nextCursor === null) {
+  // Daemon returns nextCursor as plain object; local returns native cursor object
+  const nextOffset = result.nextCursor?._offset ?? result.nextCursor?._offset ?? null;
+  if (nextOffset !== null) {
+    const nextPage = parseInt(args.cursor || '1', 10) + 1;
+    const queryKey = cursors.makeQueryKey(args.pattern, args.constraints, args.limit);
+    cursors.store(queryKey, args.pattern, args.constraints, args.limit, nextPage, { offset: nextOffset });
+    notices.push(`Continue with cursor="${nextPage}"`);
+  }
+}
+if (viaDaemon) notices.push('via daemon');
+if (notices.length > 0) output += `\n\n[${notices.join('. ')}]`;
+
+console.log('\n' + output + '\n');
+
+const totalMatched = result.totalMatched ?? result.items?.length ?? 0;
+const totalFilesSearched = result.totalFilesSearched ?? '?';
+const filteredFileCount = result.filteredFileCount ?? '?';
+console.log(`Matched ${totalMatched} lines across ${totalFilesSearched} files searched (${filteredFileCount} eligible)`);

@@ -1,0 +1,20 @@
+{
+  "name": "fff-cli",
+  "version": "0.1.0",
+  "description": "Standalone CLI tools for fast file finding and grepping using @ff-labs/fff-node",
+  "type": "module",
+  "bin": {
+    "ffgrep": "./bin/ffgrep",
+    "fffind": "./bin/fffind",
+    "fff-multi-grep": "./bin/fff-multi-grep",
+    "fff-scan": "./bin/fff-scan",
+    "fff-daemon": "./bin/fff-daemon"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": ["fff", "fast-file-finder", "grep", "find", "fuzzy-search"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {}
+}
