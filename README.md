@@ -10,7 +10,6 @@ CLI file search tools using `@ff-labs/fff-node` library part of the amazing [fff
 | `fffind` | Fuzzy file finder: search by path with frecency ranking |
 | `fff-multi-grep` | SIMD multi-pattern OR search (Aho-Corasick) |
 | `fff-daemon` | Long-running indexer + IPC server for instant queries |
-| `fff-scan` | Pre-scan a directory and warm frecency/history DBs |
 
 ## Installation
 
@@ -37,7 +36,6 @@ The scripts resolve their internal modules relative to their **real source direc
 ln -s /projects/fff-cli/bin/ffgrep ~/.local/bin/ffgrep
 ln -s /projects/fff-cli/bin/fffind ~/.local/bin/fffind
 ln -s /projects/fff-cli/bin/fff-multi-grep ~/.local/bin/fff-multi-grep
-ln -s /projects/fff-cli/bin/fff-scan ~/.local/bin/fff-scan
 ln -s /projects/fff-cli/bin/fff-daemon ~/.local/bin/fff-daemon
 ```
 
@@ -149,7 +147,6 @@ Standalone Options (Non-Daemon mode):
 - [`docs/ffgrep.md`](docs/ffgrep.md)
 - [`docs/fffind.md`](docs/fffind.md)
 - [`docs/fff-multi-grep.md`](docs/fff-multi-grep.md)
-- [`docs/fff-scan.md`](docs/fff-scan.md)
 
 ## Environment variables
 
