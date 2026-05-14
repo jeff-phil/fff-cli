@@ -2,6 +2,9 @@
 
 OR-logic multi-pattern content search using SIMD-accelerated Aho-Corasick matching. Faster than regex alternation (`foo|bar|baz`) for literal text searches because it uses a single SIMD scan instead of backtracking.
 
+"Daemon Mode" is when `fff-multi-grep` connects to a running `fff-daemon` socket for queries. In "Standalone", or Non-Daemon Mode, `fff-multi-grep` will scan before each query resulting which will affect performance of returned results.
+
+
 ## Usage
 
 ```bash
@@ -10,13 +13,23 @@ fff-multi-grep <p1,p2,...> [options]
 
 ## Parameters
 
+### Parameters for both Daemon and Standalone modes
+
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `--constraints` | string | — | File constraints (e.g. `"*.ts !test/"`) |
-| `--ignore-case` | flag | false | Force case-insensitive matching |
-| `--context` | number | 0 | Context lines before and after each match |
-| `--limit` | number | 100 | Maximum matches **per file** (capped at 50). Not a total page — all matching files are included, each limited to this value. |
-| `--cursor` | string | 1 | Page number to resume (default: 1, same as no `--cursor`) |
+| `-c`, `--constraints` | string | — | Path file constraints (e.g. `"*.ts !test/"`) |
+| `-i`, `--ignore-case` | flag | false | Force case-insensitive matching (default: smartCase|
+| `--context` | number | 0 | Lines of context before **and** after each match. Sets both `--before-context` and `--after-context`. |
+| `-b`, `--before-context` | number | 0 | Lines to show before each match |
+| `-a`, `--after-context` | number | 0 | Lines to show after each match |
+| `-l`, `--limit` | number | 100 | Maximum matches **per file** (capped at 50). Not a total page — all matching files are included, each limited to this value. |
+| `-n`, `--cursor` | string | 1 | Page number to resume (default: 1, same as no `--cursor`) |
+| `-s`, `--sock` | path | — | Unix socket for `fff-daemon` (overrides `FFF_DAEMON_SOCK`) |
+
+### Parameters for only Standalone (Non-Daemon) mode
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
 | `--base` | path | `cwd` | Base directory to search |
 | `--frecency-db` | path | — | Path to frecency database directory |
 | `--history-db` | path | — | Path to query history database directory |
@@ -25,11 +38,11 @@ fff-multi-grep <p1,p2,...> [options]
 
 | Variable | Effect |
 |---|---|
-| `FFF_FFF_NODE_PATH` | Override `@ff-labs/fff-node` module path |
 | `FFF_FRECENCY_DB` | Override frecency database path |
 | `FFF_HISTORY_DB` | Override query history database path |
 | `FFF_CURSORS_DIR` | Cursor storage directory (default: `/tmp`) |
-| `FFF_DAEMON_SOCK` | Unix socket path for `fff-daemon` (default: `/tmp/fff.sock`) |
+| `FFF_DAEMON_SOCK` | Unix socket path for `fff-daemon` (default: `/tmp/fff.sock`). Overridden by `--sock` |
+| `FFF_FFF_NODE_PATH` | Override `@ff-labs/fff-node` module path |
 
 The CLI auto-detects databases in this order:
 1. `{basePath}/.local/share/fff/{frecency,history}` (project-local)
@@ -37,7 +50,7 @@ The CLI auto-detects databases in this order:
 
 ## Daemon mode
 
-If `fff-daemon` is running for `--base`, `fff-multi-grep` connects via Unix domain socket and searches the warm in-memory index instantly. Falls back to local mode automatically if no daemon is listening.
+If `fff-daemon` is running for `--base`, `fff-multi-grep` connects via Unix domain socket and searches the warm in-memory index instantly. Falls back to local Standalone mode automatically if no daemon is listening.
 
 ## How it works
 

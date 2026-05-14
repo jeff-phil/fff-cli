@@ -16,6 +16,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
+import { execSync } from 'node:child_process';
 import { resolveFffNode } from './resolve-fff.mjs';
 
 const { FileFinder } = await resolveFffNode();
@@ -28,9 +29,10 @@ const CONTROL_OPS = new Set(['scan', 'health', 'shutdown']);
 // Control command client (scan / health / shutdown)
 // ---------------------------------------------------------------------------
 
-function sendControl(op) {
+function sendControl(op, sockPath) {
+  const connectPath = sockPath || SOCK_PATH;
   return new Promise((resolve, reject) => {
-    const sock = net.connect({ path: SOCK_PATH });
+    const sock = net.connect({ path: connectPath });
     let buf = '';
     let done = false;
 
@@ -70,9 +72,9 @@ function sendControl(op) {
   });
 }
 
-async function runControl(op) {
+async function runControl(op, sockPath) {
   try {
-    const result = await sendControl(op);
+    const result = await sendControl(op, sockPath);
     if (op === 'shutdown') {
       console.log('✅ Daemon signaled to shut down.');
     } else if (op === 'scan') {
@@ -83,7 +85,7 @@ async function runControl(op) {
     }
     process.exit(0);
   } catch (e) {
-    console.error(`Cannot reach daemon at ${SOCK_PATH}: ${e.message}`);
+    console.error(`Cannot reach daemon at ${sockPath || SOCK_PATH}: ${e.message}`);
     console.error('Is the daemon running? Start it with: fff-daemon [directory]');
     process.exit(1);
   }
@@ -107,10 +109,10 @@ function showHelp(exitCode = 0) {
   sink(`  ${NAME} shutdown      Stop the running daemon`);
   sink();
   sink('Options:');
-  sink('  --frecency-db <path>  Frecency DB');
-  sink('  --history-db <path>   History DB');
-  sink('  --sock-path <path>    Unix socket path (default: /tmp/fff.sock)');
-  sink('  --help                Show this message');
+  sink('  --frecency-db <path>     Frecency DB');
+  sink('  --history-db <path>      History DB');
+  sink('  --sock <path>            Unix socket path (default: $FFF_DAEMON_SOCK or /tmp/fff.sock)');
+  sink('  --help                   Show this message');
   process.exit(exitCode);
 }
 
@@ -129,8 +131,7 @@ function parseArgs(argv) {
       case '--help': showHelp(); break;
       case '--frecency-db': result.frecencyDbPath = argv[++i]; break;
       case '--history-db': result.historyDbPath = argv[++i]; break;
-      case '--sock-path': result.sockPath = argv[++i]; break;
-      case '--sockPath': result.sockPath = argv[++i]; break; // legacy
+      case '--sock': result.sockPath = argv[++i]; break;
       default:
         if (arg.startsWith('-')) { console.error(`${NAME}: unknown option: ${arg}`); process.exit(1); }
         remaining.push(arg);
@@ -151,7 +152,7 @@ const args = parseArgs(process.argv.slice(2));
 
 // Dispatch control commands before touching server logic
 if (args.controlOp) {
-  await runControl(args.controlOp);
+  await runControl(args.controlOp, args.sockPath);
   // runControl exits; we never get here
 }
 
@@ -169,7 +170,7 @@ const alreadyRunning = await new Promise((resolve) => {
 
 if (alreadyRunning) {
   console.error(`❌ A daemon is already running on socket ${args.sockPath}`);
-  console.error('   Use a different --sock-path or stop the existing daemon first.');
+  console.error('   Use a different --sock or stop the existing daemon first.');
   process.exit(1);
 }
 
@@ -201,6 +202,24 @@ function resolveDbPaths(basePath) {
     try { if (fs.statSync(autoHome).isDirectory()) historyDbPath = autoHome; } catch {}
   }
   return { frecencyDbPath, historyDbPath };
+}
+
+// ---------------------------------------------------------------------------
+// Git info
+// ---------------------------------------------------------------------------
+
+function getGitInfo(dir) {
+  try {
+    const topLevel = execSync('git rev-parse --show-toplevel', { cwd: dir, encoding: 'utf8', timeout: 5000 }).trim();
+    const workdir = execSync('git worktree list --porcelain', { cwd: dir, encoding: 'utf8', timeout: 5000 })
+      .split('\n')
+      .find(l => l.startsWith('worktree '))
+      ?.replace('worktree ', '')
+      ?? topLevel;
+    return { repositoryFound: true, workdir };
+  } catch {
+    return { repositoryFound: false };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -298,10 +317,12 @@ const handlers = {
 
   async health() {
     const progress = finder.getScanProgress();
+    const git = getGitInfo(directory);
     return {
       basePath: directory,
       scannedFilesCount: progress.ok ? progress.value.scannedFilesCount : null,
       scanning: progress.ok ? progress.value.isScanning : null,
+      git: git.repositoryFound ? `yes (${git.workdir})` : 'no',
       dbs: dbInfo.length ? dbInfo : 'No frecency or history dbs configured',
       sockPath: args.sockPath,
     };
@@ -341,6 +362,7 @@ const server = net.createServer((socket) => {
       (async () => {
         try {
           const req = JSON.parse(line);
+          console.log(`[${new Date().toISOString()}] op=${req.op} > ${JSON.stringify(req.params || {})}`);
           const handler = handlers[req.op];
           if (!handler) {
             writeResponse(socket, { ok: false, error: `Unknown op: ${req.op}` });

@@ -2,6 +2,8 @@
 
 Content search using FFF (Fast File Finder) — regex and literal grep with frecency ranking, smart case, and fuzzy fallback. Think of it like `rg` but with frecency-aware result ranking.
 
+"Daemon Mode" is when `ffgrep` connects to a running `fff-daemon` socket for queries. In "Standalone", or Non-Daemon Mode, `ffgrep` will scan before each query resulting which will affect performance of returned results.
+
 ## Usage
 
 ```bash
@@ -10,16 +12,27 @@ ffgrep <pattern> [options]
 
 ## Parameters
 
+### Parameters for both Daemon and Standalone modes
+
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `pattern` | string | *(required)* | Search text or regex |
-| `--constraints` | string | — | Path constraints: includes and excludes (e.g. `"src/ *.ts !test/ !*.min.js"`) |
-| `--ignore-case` | flag | false | Force case-insensitive matching |
-| `--regex` | flag | — | Treat pattern as regex (overrides auto-detect) |
+| `-c`, `--constraints` | string | — | Path filter constraints: includes and excludes (e.g. `"src/ *.ts !test/ !*.min.js"`) |
+| `-i`, `--ignore-case` | flag | false | Force case-insensitive matching (default: smartCase) |
+| `-e`, `--regex` | flag | — | Treat pattern as regex (overrides auto-detect) |
 | `--literal` | flag | — | Treat pattern as literal string (overrides auto-detect) |
-| `--context` | number | 0 | Context lines before and after each match |
-| `--limit` | number | 100 | Maximum matches **per file** (capped at 50). Controls how many matching lines are returned from any single file. **Not** a total page — all matching files are included, each limited to this value. |
-| `--cursor` | string | 1 | Page number to resume (default: 1, same as no `--cursor`) |
+| `--context` | number | 0 | Lines of context before **and** after each match. Sets both `--before-context` and `--after-context`. |
+| `-b`, `--before-context` | number | 0 | Lines to show before each match |
+| `-a`, `--after-context` | number | 0 | Lines to show after each match |
+| `-l`, `--limit` | number | 100 | Maximum matches **per file** (capped at 50). Controls how many matching lines are returned from any single file. **Not** a total page — all matching files are included, each limited to this value. |
+| `-n`, `--cursor` | string | 1 | Page number to resume (default: 1, same as no `--cursor`) |
+| `-s`, `--sock` | path | — | Unix socket for `fff-daemon` (overrides `FFF_DAEMON_SOCK`) |
+
+
+### Parameters for only Standalone (Non-Daemon) mode
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
 | `--base` | path | `cwd` | Base directory to search |
 | `--frecency-db` | path | — | Path to frecency database directory |
 | `--history-db` | path | — | Path to query history database directory |
@@ -28,11 +41,11 @@ ffgrep <pattern> [options]
 
 | Variable | Effect |
 |---|---|
-| `FFF_FFF_NODE_PATH` | Override `@ff-labs/fff-node` module path |
 | `FFF_FRECENCY_DB` | Override frecency database path |
 | `FFF_HISTORY_DB` | Override query history database path |
 | `FFF_CURSORS_DIR` | Cursor storage directory (default: `/tmp`) |
-| `FFF_DAEMON_SOCK` | Unix socket path for `fff-daemon` (default: `/tmp/fff.sock`) |
+| `FFF_DAEMON_SOCK` | Unix socket path for `fff-daemon` (default: `/tmp/fff.sock`). Overridden by `--sock` |
+| `FFF_FFF_NODE_PATH` | Override `@ff-labs/fff-node` module path |
 
 The CLI auto-detects databases in this order:
 1. `{basePath}/.local/share/fff/{frecency,history}` (project-local)
@@ -65,7 +78,7 @@ fff-daemon ~/my-project
 ffgrep "TODO" --base ~/my-project
 ```
 
-If no daemon is listening, `ffgrep` falls back to local mode automatically (creates its own FileFinder, waits for scan). Control the socket path with `FFF_DAEMON_SOCK`.
+If no daemon is listening, `ffgrep` falls back to local Standalone mode automatically (creates its own FileFinder, waits for scan). Control the socket path with `FFF_DAEMON_SOCK`.
 
 ## How it works
 
@@ -102,6 +115,11 @@ ffgrep "registerTool" --constraints "extensions/emacs-org-cli.ts" --context 2 --
 ```
 
 Shows matches with 2 lines of surrounding context in the specified file.
+
+```bash
+# Show 3 lines before and 1 line after each match
+ffgrep "TODO" --before-context 3 --after-context 1
+```
 
 ### Search outside the base directory
 

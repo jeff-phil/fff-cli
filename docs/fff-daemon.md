@@ -1,6 +1,6 @@
 # fff-daemon
 
-Long-running FFF indexer and IPC server. Keeps a `FileFinder` in memory so searches are instant — no per-invocation scan overhead. The CLI tools connect automatically when a daemon is running.
+Long-running FFF indexer and IPC server. Keeps a `FileFinder` in memory so searches are instant — no per-invocation scan overhead. The CLI tools connect automatically when a daemon is running (and know the socket path).
 
 ## Usage
 
@@ -26,17 +26,21 @@ fff-daemon ~/my-project
 ### Control a running daemon
 
 ```bash
-fff-daemon health      # Show daemon status (JSON)
-fff-daemon scan        # Trigger a rescan
-fff-daemon shutdown    # Stop the daemon
+fff-daemon health                    # Show daemon status
+fff-daemon scan                      # Trigger a rescan
+fff-daemon shutdown                  # Stop the default daemon
+fff-daemon health --sock /tmp/fff-dev.sock   # Control a custom-socket daemon
 ```
+
+Control commands respect `--sock` just like server startup does. You can run
+multiple daemons on different sockets and target them individually.
 
 ## Parameters
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `directory` | path | `cwd` | Directory to index and serve |
-| `--sock-path` | path | `/tmp/fff.sock` | Unix domain socket path |
+| `--sock` | path | `/tmp/fff.sock` | Unix domain socket path |
 | `--frecency-db` | path | — | Frecency database directory |
 | `--history-db` | path | — | Query history database directory |
 | `--help` | flag | — | Show usage |
@@ -68,7 +72,7 @@ echo '{"op":"health","params":{}}' | nc -U /tmp/fff.sock
 
 **Response:**
 ```json
-{"ok":true,"result":{"basePath":"/home/user/my-project","scannedFilesCount":3421,"scanning":false,"dbs":["frecency","history"],"sockPath":"/tmp/fff.sock"}}
+{"ok":true,"result":{"basePath":"/home/user/my-project","scannedFilesCount":3421,"scanning":false,"git":"yes (/home/user/my-project)","dbs":["frecency","history"],"sockPath":"/tmp/fff.sock"}}
 ```
 
 ### Supported operations
@@ -124,8 +128,8 @@ nohup fff-daemon ~/my-project > /tmp/fff-daemon.log 2>&1 &
 Use different socket paths to run multiple daemons:
 
 ```bash
-fff-daemon ~/project-a --sock-path /tmp/fff-a.sock
-fff-daemon ~/project-b --sock-path /tmp/fff-b.sock
+fff-daemon ~/project-a --sock /tmp/fff-a.sock
+fff-daemon ~/project-b --sock /tmp/fff-b.sock
 
 # Clients use env var
 FFF_DAEMON_SOCK=/tmp/fff-a.sock ffgrep "foo" --base ~/project-a

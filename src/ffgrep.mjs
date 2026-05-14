@@ -15,7 +15,7 @@ const SRC_DIR = path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)));
 const { resolveFffNode } = await import(path.join(SRC_DIR, 'resolve-fff.mjs'));
 const { createStore } = await import(path.join(SRC_DIR, 'cursor-store.mjs'));
 const {
-  ipcAvailable, dslGrep, serialiseCursor, getSockPath,
+  ipcAvailable, dslGrep, setSockPath, getSockPath,
 } = await import(path.join(SRC_DIR, 'ipc-client.mjs'));
 
 const { FileFinder } = await resolveFffNode();
@@ -57,42 +57,55 @@ function showHelp(exitCode = 0) {
   const sink = exitCode === 0 ? console.log : console.error;
   sink(`Usage: ${NAME} <pattern> [options]`);
   sink('Options:');
-  sink('  --constraints <...>   Path constraints');
-  sink('  --ignore-case         Case-insensitive');
-  sink('  --regex               Force regex');
-  sink('  --literal             Force literal');
-  sink('  --context <N>         Context lines');
-  sink('  --limit <N>           Max matches per file, capped at 50 (default: 100)');
-  sink('  --cursor <id>         Page number (default: 1)');
-  sink('  --base <path>         Base directory');
-  sink('  --frecency-db <path>  Frecency DB');
-  sink('  --history-db <path>   History DB');
-  sink('  --help                Show this message');
+  sink('  -c, --constraints <...>   Path filter constraints');
+  sink('  -i, --ignore-case         Case-insensitive (default: smartCase)');
+  sink('  -e, --regex               Force regex');
+  sink('      --literal             Force literal');
+  sink('      --context <N>         Context lines before and after each match');
+  sink('  -b, --before-context <N>  Lines before each match');
+  sink('  -a, --after-context <N>   Lines after each match');
+  sink('  -l, --limit <N>           Max matches per file, capped at 50 (default: 100)');
+  sink('  -n, --cursor <id>         Page number (default: 1)');
+  sink('  -s, --sock <path>         Daemon socket (default: $FFF_DAEMON_SOCK or /tmp/fff.sock)');
+  sink('');
+  sink('Standalone Options (Non-Daemon mode):');
+  sink('      --base <path>         Base directory');
+  sink('      --frecency-db <path>  Frecency DB');
+  sink('      --history-db <path>   History DB');
+  sink('');
+  sink('      --help                Show this message');
   process.exit(exitCode);
 }
 
 function parseArgs(argv) {
   const result = {
     pattern: undefined, basePath: undefined, constraints: undefined,
-    ignoreCase: false, literal: undefined, context: 0,
+    ignoreCase: false, literal: undefined,
+    beforeContext: 0, afterContext: 0,
     limit: 100, cursor: undefined,
-    frecencyDbPath: undefined, historyDbPath: undefined,
+    frecencyDbPath: undefined, historyDbPath: undefined, sockPath: undefined,
   };
   const remaining = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     switch (arg) {
       case '--help': showHelp(); break;
-      case '--constraints': result.constraints = argv[++i]; break;
-      case '--ignore-case': result.ignoreCase = true; break;
-      case '--regex': result.literal = false; break;
+      case '-c': case '--constraints': result.constraints = argv[++i]; break;
+      case '-i': case '--ignore-case': result.ignoreCase = true; break;
+      case '-e': case '--regex': result.literal = false; break;
       case '--literal': result.literal = true; break;
-      case '--context': result.context = parseInt(argv[++i], 10); break;
-      case '--limit': result.limit = parseInt(argv[++i], 10); break;
-      case '--cursor': result.cursor = argv[++i]; break;
+      case '--context': {
+        const n = parseInt(argv[++i], 10);
+        result.beforeContext = n; result.afterContext = n; break;
+      }
+      case '-b': case '--before-context': result.beforeContext = parseInt(argv[++i], 10); break;
+      case '-a': case '--after-context': result.afterContext = parseInt(argv[++i], 10); break;
+      case '-l': case '--limit': result.limit = parseInt(argv[++i], 10); break;
+      case '-n': case '--cursor': result.cursor = argv[++i]; break;
       case '--base': result.basePath = argv[++i]; break;
       case '--frecency-db': result.frecencyDbPath = argv[++i]; break;
       case '--history-db': result.historyDbPath = argv[++i]; break;
+      case '-s': case '--sock': result.sockPath = argv[++i]; break;
       default:
         if (arg.startsWith('-')) { console.error(`${NAME}: unknown option: ${arg}`); process.exit(1); }
         remaining.push(arg);
@@ -247,7 +260,7 @@ async function runLocal(args) {
     mode, smartCase: !args.ignoreCase,
     maxMatchesPerFile: Math.min(Math.max(1, args.limit), 50),
     cursor: nativeCursor,
-    beforeContext: args.context, afterContext: args.context,
+    beforeContext: args.beforeContext, afterContext: args.afterContext,
     classifyDefinitions: true,
   });
   if (!grepResult.ok) { console.error('Grep failed:', grepResult.error); process.exit(1); }
@@ -259,6 +272,7 @@ async function runLocal(args) {
 // ---------------------------------------------------------------------------
 
 const args = parseArgs(process.argv.slice(2));
+if (args.sockPath) setSockPath(args.sockPath);
 if (!args.pattern) showHelp(1);
 
 const mode = resolveGrepMode(args.pattern, args.literal);
@@ -288,8 +302,8 @@ if (daemonOk) {
       smartCase: !args.ignoreCase,
       limit: args.limit,
       cursorRaw,
-      beforeContext: args.context,
-      afterContext: args.context,
+      beforeContext: args.beforeContext,
+      afterContext: args.afterContext,
     });
   } catch (e) {
     console.warn('Daemon request failed, falling back to local:', e.message);

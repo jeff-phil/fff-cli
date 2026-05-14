@@ -12,7 +12,7 @@ const SRC_DIR = path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)));
 const { resolveFffNode } = await import(path.join(SRC_DIR, 'resolve-fff.mjs'));
 const { createStore } = await import(path.join(SRC_DIR, 'cursor-store.mjs'));
 const {
-  ipcAvailable, dslFind, getSockPath,
+  ipcAvailable, dslFind, setSockPath, getSockPath,
 } = await import(path.join(SRC_DIR, 'ipc-client.mjs'));
 
 const { FileFinder } = await resolveFffNode();
@@ -54,13 +54,17 @@ function showHelp(exitCode = 0) {
   const sink = exitCode === 0 ? console.log : console.error;
   sink(`Usage: ${NAME} <pattern> [options]`);
   sink('Options:');
-  sink('  --base <path>         Base directory');
-  sink('  --constraints <...>   Path filters');
-  sink('  --limit <N>           Max results per page (default: 30)');
-  sink('  --cursor <id>         Page number (default: 1)');
-  sink('  --frecency-db <path>  Frecency DB');
-  sink('  --history-db <path>   History DB');
-  sink('  --help                Show this message');
+  sink('  -c, --constraints <...>   Path filter constraints');
+  sink('  -l, --limit <N>           Max results per page (default: 30)');
+  sink('  -n, --cursor <id>         Page number (default: 1)');
+  sink('  -s, --sock <path>         Daemon socket (default: $FFF_DAEMON_SOCK or /tmp/fff.sock)');
+  sink('');
+  sink('Standalone Options (Non-Daemon mode):');
+  sink('      --base <path>         Base directory');
+  sink('      --frecency-db <path>  Frecency DB');
+  sink('      --history-db <path>   History DB');
+  sink('');
+  sink('      --help                Show this message');
   process.exit(exitCode);
 }
 
@@ -68,7 +72,7 @@ function parseArgs(argv) {
   const result = {
     pattern: undefined, basePath: process.cwd(), constraints: undefined,
     limit: 30, cursor: undefined,
-    frecencyDbPath: undefined, historyDbPath: undefined,
+    frecencyDbPath: undefined, historyDbPath: undefined, sockPath: undefined,
   };
   const remaining = [];
   for (let i = 0; i < argv.length; i++) {
@@ -76,11 +80,12 @@ function parseArgs(argv) {
     switch (arg) {
       case '--help': showHelp(); break;
       case '--base': result.basePath = argv[++i]; break;
-      case '--constraints': result.constraints = argv[++i]; break;
-      case '--limit': result.limit = parseInt(argv[++i], 10); break;
-      case '--cursor': result.cursor = argv[++i]; break;
+      case '-c': case '--constraints': result.constraints = argv[++i]; break;
+      case '-l': case '--limit': result.limit = parseInt(argv[++i], 10); break;
+      case '-n': case '--cursor': result.cursor = argv[++i]; break;
       case '--frecency-db': result.frecencyDbPath = argv[++i]; break;
       case '--history-db': result.historyDbPath = argv[++i]; break;
+      case '-s': case '--sock': result.sockPath = argv[++i]; break;
       default:
         if (arg.startsWith('-')) { console.error(`${NAME}: unknown option: ${arg}`); process.exit(1); }
         remaining.push(arg);
@@ -189,6 +194,7 @@ async function runLocal(args) {
 // ---------------------------------------------------------------------------
 
 const args = parseArgs(process.argv.slice(2));
+if (args.sockPath) setSockPath(args.sockPath);
 if (!args.pattern) showHelp(1);
 
 const query = buildQuery(args.constraints, args.pattern);

@@ -14,8 +14,14 @@ export function ipcAvailable() {
   });
 }
 
+let _sockPathOverride = null;
+
+export function setSockPath(path) {
+  _sockPathOverride = path;
+}
+
 export function getSockPath() {
-  return process.env.FFF_DAEMON_SOCK || '/tmp/fff.sock';
+  return _sockPathOverride || process.env.FFF_DAEMON_SOCK || '/tmp/fff.sock';
 }
 
 export function dslRequest(op, params) {

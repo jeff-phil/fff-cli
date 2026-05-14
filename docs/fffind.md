@@ -2,6 +2,9 @@
 
 Fuzzy file search using FFF (Fast File Finder). Matches against the whole repo-relative path, not just the filename.
 
+"Daemon Mode" is when `fffind` connects to a running `fff-daemon` socket for queries. In "Standalone", or Non-Daemon Mode, `fffind` will scan before each query resulting which will affect performance of returned results.
+
+
 ## Usage
 
 ```bash
@@ -10,13 +13,22 @@ fffind <pattern> [options]
 
 ## Parameters
 
+### Parameters for both Daemon and Standalone modes
+
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `pattern` | string | *(required)* | Fuzzy search pattern (matches against whole path) |
+| `-c`, `--constraints` | string | — | Path constraints: includes and excludes (e.g. `"src/ *.ts !test/ !*.min.js"`) |
+| `-l`, `--limit` | number | 30 | Maximum results per page |
+| `-n`, `--cursor` | string | 1 | Page number to resume (default: 1, same as no `--cursor`) |
+| `-s`, `--sock` | path | — | Unix socket for `fff-daemon` (overrides `FFF_DAEMON_SOCK`) |
+
+
+### Parameters for only Standalone (Non-Daemon) mode
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
 | `--base` | path | `cwd` | Base directory to search |
-| `--constraints` | string | — | Path constraints: includes and excludes (e.g. `"src/ *.ts !test/ !*.min.js"`) |
-| `--limit` | number | 30 | Maximum results per page |
-| `--cursor` | string | 1 | Page number to resume (default: 1, same as no `--cursor`) |
 | `--frecency-db` | path | — | Path to frecency database directory |
 | `--history-db` | path | — | Path to query history database directory |
 
@@ -24,11 +36,11 @@ fffind <pattern> [options]
 
 | Variable | Effect |
 |---|---|
-| `FFF_FFF_NODE_PATH` | Override `@ff-labs/fff-node` module path |
 | `FFF_FRECENCY_DB` | Override frecency database path |
 | `FFF_HISTORY_DB` | Override query history database path |
 | `FFF_CURSORS_DIR` | Cursor storage directory (default: `/tmp`) |
-| `FFF_DAEMON_SOCK` | Unix socket path for `fff-daemon` (default: `/tmp/fff.sock`) |
+| `FFF_DAEMON_SOCK` | Unix socket path for `fff-daemon` (default: `/tmp/fff.sock`). Overridden by `--sock` |
+| `FFF_FFF_NODE_PATH` | Override `@ff-labs/fff-node` module path |
 
 The CLI auto-detects databases in this order:
 1. `{basePath}/.local/share/fff/{frecency,history}` (project-local)
@@ -47,7 +59,7 @@ The CLI auto-detects databases in this order:
 
 ## Daemon mode
 
-If `fff-daemon` is running for `--base`, `fffind` connects via Unix domain socket and searches the warm in-memory index instantly. Falls back to local mode automatically if no daemon is listening.
+If `fff-daemon` is running for `--base`, `fffind` connects via Unix domain socket and searches the warm in-memory index instantly. Falls back to local Standalone mode automatically if no daemon is listening.
 
 ## How it works
 
