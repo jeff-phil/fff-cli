@@ -1,6 +1,6 @@
 # fff-cli
 
-Standalone CLI tools around `@ff-labs/fff-node` — the same fast file finder engine that powers the pi coding agent. Use these on any machine with Node.js, with or without pi installed.
+CLI file search tools using `@ff-labs/fff-node` library part of the amazing [fff - file search library](https://github.com/dmtrKovalenko/fff). The tools can be used in Daemon Mode, or (much less efficient, but compatible) Standalone (Non-Daemon) Mode.
 
 ## Tools
 
@@ -58,68 +58,109 @@ export FFF_FFF_NODE_PATH=/custom/path/@ff-labs/fff-node/dist/src/index.js
 
 ## Quick Reference
 
+### fff-daemon
+
+```bash
+Usage: fff-daemon [directory|command] [options]
+
+Server mode:
+  fff-daemon               Start daemon for current directory
+  fff-daemon ~/my-project  Start daemon for specific directory
+
+Client control:
+  fff-daemon scan          Trigger a rescan in the running daemon
+  fff-daemon health        Show daemon status
+  fff-daemon shutdown      Stop the running daemon
+
+Options:
+  --frecency-db <path>     Frecency DB
+  --history-db <path>      History DB
+  --sock <path>            Unix socket path (default: $FFF_DAEMON_SOCK or /tmp/fff.sock)
+  --help                   Show this message
+```
+
 ### ffgrep
 
 ```bash
-ffgrep <pattern> [options]
-
+Usage: ffgrep <pattern> [options]
 Options:
-  --constraints <...>   Path filters (e.g. "src/ *.ts !test/ !*.min.js")
-  --ignore-case         Force case-insensitive
-  --regex               Treat pattern as regex
-  --literal             Force literal string
-  --context <N>         Context lines (default: 0)
-  --limit <N>           Max matches (default: 100)
-  --cursor <id>         Pagination cursor
-  --base <path>         Base directory (default: cwd)
-  --frecency-db <path>  Frecency DB path
-  --history-db <path>   History DB path
+  -c, --constraints <...>   Path filter constraints
+  -i, --ignore-case         Case-insensitive (default: smartCase)
+  -e, --regex               Force regex
+      --literal             Force literal
+      --context <N>         Context lines before and after each match
+  -b, --before-context <N>  Lines before each match
+  -a, --after-context <N>   Lines after each match
+  -l, --limit <N>           Max matches per file, capped at 50 (default: 100)
+  -n, --cursor <id>         Page number (default: 1)
+  -s, --sock <path>         Daemon socket (default: $FFF_DAEMON_SOCK or /tmp/fff.sock)
+
+Standalone Options (Non-Daemon mode):
+      --base <path>         Base directory
+      --frecency-db <path>  Frecency DB
+      --history-db <path>   History DB
+
+      --help                Show this message
 ```
 
 ### fffind
 
 ```bash
-fffind <pattern> [options]
-
+Usage: fffind <pattern> [options]
 Options:
-  --base <path>         Base directory (default: cwd)
-  --constraints <...>   Path filters
-  --limit <N>           Max results per page (default: 30)
-  --cursor <id>         Pagination cursor
-  --frecency-db <path>  Frecency DB path
-  --history-db <path>   History DB path
+  -c, --constraints <...>   Path filter constraints
+  -l, --limit <N>           Max results per page (default: 30)
+  -n, --cursor <id>         Page number (default: 1)
+  -s, --sock <path>         Daemon socket (default: $FFF_DAEMON_SOCK or /tmp/fff.sock)
+
+Standalone Options (Non-Daemon mode):
+      --base <path>         Base directory
+      --frecency-db <path>  Frecency DB
+      --history-db <path>   History DB
+
+      --help                Show this message
 ```
 
 ### fff-multi-grep
 
 ```bash
-fff-multi-grep <p1,p2,...> [options]
-
+Usage: fff-multi-grep <p1,p2,...> [options]
 Options:
-  --constraints <...>   File filters
-  --ignore-case
-  --context <N>
-  --limit <N>
-  --cursor <id>
-  --base <path>
-  --frecency-db <path>
-  --history-db <path>
+  -c, --constraints <...>   Path filter constraints
+  -i, --ignore-case         Case-insensitive (default: smartCase)
+      --context <N>         Lines before and after each match
+  -b, --before-context <N>  Lines before each match
+  -a, --after-context <N>   Lines after each match
+  -l, --limit <N>           Max matches per file, capped at 50 (default: 100)
+  -n, --cursor <id>         Page number (default: 1)
+  -s, --sock <path>         Daemon socket (default: $FFF_DAEMON_SOCK or /tmp/fff.sock)
+
+Standalone Options (Non-Daemon mode):
+      --base <path>         Base directory
+      --frecency-db <path>  Frecency DB
+      --history-db <path>   History DB
+
+      --help                Show this message
 ```
 
 ## Full docs
 
+- [`docs/fff-daemon.md`](docs/fff-daemon.md)
 - [`docs/ffgrep.md`](docs/ffgrep.md)
 - [`docs/fffind.md`](docs/fffind.md)
 - [`docs/fff-multi-grep.md`](docs/fff-multi-grep.md)
-- [`docs/fff-daemon.md`](docs/fff-daemon.md)
 - [`docs/fff-scan.md`](docs/fff-scan.md)
 
 ## Environment variables
 
 | Variable | Effect |
 |---|---|
-| `FFF_FFF_NODE_PATH` | Override `@ff-labs/fff-node` module path |
 | `FFF_FRECENCY_DB` | Frecency database directory |
 | `FFF_HISTORY_DB` | Query history database directory |
 | `FFF_CURSORS_DIR` | Cursor JSON storage directory (default: `/tmp`) |
 | `FFF_DAEMON_SOCK` | Unix socket path for `fff-daemon` (default: `/tmp/fff.sock`) |
+| `FFF_FFF_NODE_PATH` | Override `@ff-labs/fff-node` module path |
+
+## Acknowledgements
+
+Thanks [fff](https://github.com/dmtrKovalenko/fff)
