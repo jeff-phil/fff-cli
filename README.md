@@ -68,12 +68,15 @@ Server mode:
 Client control:
   fff-daemon scan          Trigger a rescan in the running daemon
   fff-daemon health        Show daemon status
+  fff-daemon watch-on      Start watching for file changes
+  fff-daemon watch-off     Stop watching for file changes
   fff-daemon shutdown      Stop the running daemon
 
 Options:
   --frecency-db <path>     Frecency DB
   --history-db <path>      History DB
   --sock <path>            Unix socket path (default: $FFF_DAEMON_SOCK or /tmp/fff.sock)
+  --watch                  Watch base directory for changes and auto-rescan
   --help                   Show this message
 ```
 

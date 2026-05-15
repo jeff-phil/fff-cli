@@ -23,7 +23,7 @@ const { FileFinder } = await resolveFffNode();
 const NAME = path.basename(process.argv[1] || 'fff-daemon.mjs');
 
 const SOCK_PATH = process.env.FFF_DAEMON_SOCK || '/tmp/fff.sock';
-const CONTROL_OPS = new Set(['scan', 'health', 'shutdown']);
+const CONTROL_OPS = new Set(['scan', 'health', 'shutdown', 'watch-on', 'watch-off']);
 
 // ---------------------------------------------------------------------------
 // Control command client (scan / health / shutdown)
@@ -80,6 +80,10 @@ async function runControl(op, sockPath) {
     } else if (op === 'scan') {
       console.log('✅ Scan triggered.');
       if (result) console.log(JSON.stringify(result, null, 2));
+    } else if (op === 'watch-on') {
+      console.log(result.message || 'Watch enabled.');
+    } else if (op === 'watch-off') {
+      console.log(result.message || 'Watch disabled.');
     } else {
       console.log(JSON.stringify(result, null, 2));
     }
@@ -106,12 +110,15 @@ function showHelp(exitCode = 0) {
   sink('Client control:');
   sink(`  ${NAME} scan          Trigger a rescan in the running daemon`);
   sink(`  ${NAME} health        Show daemon status`);
+  sink(`  ${NAME} watch-on      Start watching for file changes`);
+  sink(`  ${NAME} watch-off     Stop watching for file changes`);
   sink(`  ${NAME} shutdown      Stop the running daemon`);
   sink();
   sink('Options:');
   sink('  --frecency-db <path>     Frecency DB');
   sink('  --history-db <path>      History DB');
   sink('  --sock <path>            Unix socket path (default: $FFF_DAEMON_SOCK or /tmp/fff.sock)');
+  sink('  --watch                  Watch base directory for changes and auto-rescan');
   sink('  --help                   Show this message');
   process.exit(exitCode);
 }
@@ -122,6 +129,7 @@ function parseArgs(argv) {
     frecencyDbPath: undefined,
     historyDbPath: undefined,
     sockPath: SOCK_PATH,
+    watch: false,
     controlOp: undefined,
   };
   const remaining = [];
@@ -132,6 +140,7 @@ function parseArgs(argv) {
       case '--frecency-db': result.frecencyDbPath = argv[++i]; break;
       case '--history-db': result.historyDbPath = argv[++i]; break;
       case '--sock': result.sockPath = argv[++i]; break;
+      case '--watch': result.watch = true; break;
       default:
         if (arg.startsWith('-')) { console.error(`${NAME}: unknown option: ${arg}`); process.exit(1); }
         remaining.push(arg);
@@ -311,8 +320,9 @@ const handlers = {
   },
 
   async scan() {
+    if (finder.isScanning()) return { message: 'Scan already in progress.' };
     finder.scanFiles();
-    return { message: 'Scan triggered' };
+    return { message: 'Scan triggered.' };
   },
 
   async health() {
@@ -323,9 +333,22 @@ const handlers = {
       scannedFilesCount: progress.ok ? progress.value.scannedFilesCount : null,
       scanning: progress.ok ? progress.value.isScanning : null,
       git: git.repositoryFound ? `yes (${git.workdir})` : 'no',
+      watching: watcher !== null,
       dbs: dbInfo.length ? dbInfo : 'No frecency or history dbs configured',
       sockPath: args.sockPath,
     };
+  },
+
+  async 'watch-on'() {
+    if (watcher) return { message: 'Watch already enabled.' };
+    startWatcher(directory);
+    return { message: 'Watch enabled.' };
+  },
+
+  async 'watch-off'() {
+    if (!watcher) return { message: 'Watch already disabled.' };
+    stopWatcher();
+    return { message: 'Watch disabled.' };
   },
 
   async shutdown() {
@@ -381,14 +404,101 @@ const server = net.createServer((socket) => {
   socket.on('close', () => { activeConnections--; });
 });
 
+// ---------------------------------------------------------------------------
+// File watcher
+// ---------------------------------------------------------------------------
+
+let watcher = null;
+let debounceTimer = null;
+const WATCH_DEBOUNCE_MS = 500;
+
+function loadIgnorePatterns(basePath) {
+  const basenames = new Set();
+  const exts = new Set();
+
+  let dir = basePath;
+  while (true) {
+    for (const name of ['.gitignore', '.ignore']) {
+      try {
+        const content = fs.readFileSync(path.join(dir, name), 'utf8');
+        for (const raw of content.split(/\r?\n/)) {
+          const line = raw.trim();
+          if (!line || line.startsWith('#') || line.startsWith('!')) continue;
+          const pat = line.endsWith('/') ? line.slice(0, -1) : line;
+
+          if (pat.startsWith('*.')) {
+            exts.add(pat.slice(1));
+          } else if (/[?*[{\]]/.test(pat) || pat.includes('/')) {
+            // Skip glob/path patterns — too easy to get wrong
+            continue;
+          } else {
+            basenames.add(pat);
+          }
+        }
+      } catch {}
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  return { basenames, exts };
+}
+
+function triggerScan(source) {
+  if (finder.isScanning()) return;
+  console.log(`[${new Date().toISOString()}] Watch: changes detected — rescanning...`);
+  finder.scanFiles();
+}
+
+function startWatcher(basePath) {
+  try {
+    const ignore = loadIgnorePatterns(basePath);
+
+    watcher = fs.watch(basePath, { recursive: true }, (eventType, filename) => {
+      if (!filename) return;
+
+      const parts = filename.split('/');
+      if (parts[0] === '.git') return;
+
+      for (const part of parts) {
+        if (ignore.basenames.has(part)) return;
+        for (const suffix of ignore.exts) {
+          if (part.endsWith(suffix)) return;
+        }
+      }
+
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => triggerScan(filename), WATCH_DEBOUNCE_MS);
+    });
+    console.log(`👁  Watching ${basePath} for changes (debounce: ${WATCH_DEBOUNCE_MS}ms)`);
+  } catch (err) {
+    console.warn(`⚠️  Could not start file watcher: ${err.message}`);
+  }
+}
+
+function stopWatcher() {
+  if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
+  if (watcher) { watcher.close(); watcher = null; }
+}
+
+// ---------------------------------------------------------------------------
+// Server startup
+// ---------------------------------------------------------------------------
+
 server.listen(args.sockPath, () => {
   console.log(`\n✅ Daemon listening on ${args.sockPath}`);
   console.log('   Send queries via ffgrep/fffind/fff-multi-grep, or connect directly.');
+  if (args.watch) startWatcher(directory);
 });
 
+// ---------------------------------------------------------------------------
 // Graceful shutdown
+// ---------------------------------------------------------------------------
+
 function shutdownServer() {
   console.log('\n→ Shutting down daemon...');
+  stopWatcher();
   try { fs.unlinkSync(args.sockPath); } catch {}
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(1), 5000);

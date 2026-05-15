@@ -20,15 +20,17 @@ fff-daemon ~/my-project
 → Creating FileFinder for: /home/user/my-project
 → Waiting for initial scan...
   Indexed 3421 files
-✅ Daemon listening on /tmp/fff.sock
+  Daemon listening on /tmp/fff.sock
 ```
 
 ### Control a running daemon
 
 ```bash
-fff-daemon health                    # Show daemon status
-fff-daemon scan                      # Trigger a rescan
-fff-daemon shutdown                  # Stop the default daemon
+fff-daemon health                            # Show daemon status
+fff-daemon scan                              # Trigger a rescan
+fff-daemon watch-on                          # Start watching for file changes
+fff-daemon watch-off                         # Stop watching for file changes
+fff-daemon shutdown                          # Stop the default daemon
 fff-daemon health --sock /tmp/fff-dev.sock   # Control a custom-socket daemon
 ```
 
@@ -43,6 +45,7 @@ multiple daemons on different sockets and target them individually.
 | `--sock` | path | `/tmp/fff.sock` | Unix domain socket path |
 | `--frecency-db` | path | — | Frecency database directory |
 | `--history-db` | path | — | Query history database directory |
+| `--watch` | flag | — | Watch base directory for changes and auto-rescan |
 | `--help` | flag | — | Show usage |
 
 ## Environment variables
@@ -59,7 +62,26 @@ multiple daemons on different sockets and target them individually.
 - Listens on a Unix domain socket for JSON requests
 - All fff-cli tools (`ffgrep`, `fffind`, `fff-multi-grep`) auto-connect when a daemon is running
 - Falls back silently to local mode if no daemon is listening
-- Trigger rescans with `fff-daemon scan` when files change
+- Trigger rescans manually with `fff-daemon scan`, or use `--watch` for automatic rescans
+
+## File watching (`--watch`)
+
+Enable file-system watching and automatic rescans:
+
+```bash
+fff-daemon ~/my-project --watch
+```
+
+Output:
+```
+  Watching /home/user/my-project for changes (debounce: 500ms)
+```
+
+**Debounce:** Changes are debounced for **500ms**. Rapid bursts (e.g. a `git checkout` touching many files) collapse into a single rescan.
+
+**Scan lock:** If a scan is already running when another change fires, it's skipped.
+
+**Ignored paths:** `.git/` is always ignored.
 
 ## IPC protocol
 
@@ -72,7 +94,7 @@ echo '{"op":"health","params":{}}' | nc -U /tmp/fff.sock
 
 **Response:**
 ```json
-{"ok":true,"result":{"basePath":"/home/user/my-project","scannedFilesCount":3421,"scanning":false,"git":"yes (/home/user/my-project)","dbs":["frecency","history"],"sockPath":"/tmp/fff.sock"}}
+{"ok":true,"result":{"basePath":"/home/user/my-project","scannedFilesCount":3421,"scanning":false,"git":"yes (/home/user/my-project)","watching":true,"dbs":["frecency","history"],"sockPath":"/tmp/fff.sock"}}
 ```
 
 ### Supported operations
@@ -82,8 +104,10 @@ echo '{"op":"health","params":{}}' | nc -U /tmp/fff.sock
 | `find` | `query`, `pageIndex`, `pageSize` | Fuzzy file search |
 | `grep` | `query`, `mode`, `smartCase`, `maxMatchesPerFile`, `cursorRaw`, `beforeContext`, `afterContext` | Content search |
 | `multi-grep` | `patterns`, `constraints`, `maxMatchesPerFile`, `smartCase`, `cursorRaw`, `beforeContext`, `afterContext` | Multi-pattern OR search |
-| `scan` | — | Trigger incremental rescan |
-| `health` | — | Get daemon status |
+| `scan` | — | Trigger rescan |
+| `health` | — | Get daemon status (includes `watching` boolean) |
+| `watch-on` | — | Set watching status flag |
+| `watch-off` | — | Clear watching status flag |
 | `shutdown` | — | Gracefully stop the daemon |
 
 ## Why use the daemon?
@@ -100,15 +124,14 @@ Without the daemon, each tool invocation creates its own `FileFinder` and re-sca
 
 ```bash
 # Terminal 1: start daemon for the project
-fff-daemon ~/my-project
+fff-daemon ~/my-project --watch
 
 # Terminal 2: instant queries (no scan delay)
 ffgrep "TODO" --limit 10
 fffind "*.ts" --limit 5
 fff-multi-grep "FIXME,HACK" --limit 10
 
-# After git pull, trigger a rescan
-fff-daemon scan
+# After git pull, the native watcher auto-updates; no manual rescan needed
 
 # When done
 fff-daemon shutdown
