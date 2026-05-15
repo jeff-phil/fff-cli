@@ -17,7 +17,7 @@ const {
 
 const { FileFinder } = await resolveFffNode();
 const NAME = path.basename(process.argv[1] || 'fff-multi-grep.mjs');
-const cursors = createStore('fff-multi-grep-cu' + 'rsors.json');
+const cursors = createStore('fff-multi-grep-cursors.json');
 
 // ---------------------------------------------------------------------------
 // DB path resolution

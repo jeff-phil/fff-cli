@@ -16,10 +16,10 @@ function getNpmGlobalPrefix() {
 
 export async function resolveFffNode() {
   // 1. Environment variable override
-  if (process.env.FFF_FFF_NODE_PATH) {
-    try { return await import(process.env.FFF_FFF_NODE_PATH); }
+  if (process.env.FFF_NODE_PATH) {
+    try { return await import(process.env.FFF_NODE_PATH); }
     catch (e) {
-      throw new Error(`FFF_FFF_NODE_PATH set but failed to import: ${e.message}`);
+      throw new Error(`FFF_NODE_PATH set but failed to import: ${e.message}`);
     }
   }
 
@@ -66,6 +66,6 @@ export async function resolveFffNode() {
     `  npm install -g @ff-labs/fff-node\n` +
     `  npm install -g @ff-labs/pi-fff\n` +
     `\nOr set the environment variable:\n` +
-    `  export FFF_FFF_NODE_PATH=/path/to/@ff-labs/fff-node/dist/src/index.js`
+    `  export FFF_NODE_PATH=/path/to/@ff-labs/fff-node/dist/src/index.js`
   );
 }

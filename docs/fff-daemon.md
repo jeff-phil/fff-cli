@@ -7,7 +7,7 @@ Long-running FFF indexer and IPC server. Keeps a `FileFinder` in memory so searc
 ### Start the daemon
 
 ```bash
-fff-daemon [directory] [options]
+fff-daemon [directory|command] [options]
 ```
 
 If no directory is given, uses the current working directory.
@@ -20,7 +20,8 @@ fff-daemon ~/my-project
 → Creating FileFinder for: /home/user/my-project
 → Waiting for initial scan...
   Indexed 3421 files
-  Daemon listening on /tmp/fff.sock
+ Daemon listening on /tmp/fff.sock
+ File watcher active for /home/user/my-project
 ```
 
 ### Control a running daemon
@@ -28,25 +29,40 @@ fff-daemon ~/my-project
 ```bash
 fff-daemon health                            # Show daemon status
 fff-daemon scan                              # Trigger a rescan
-fff-daemon watch-on                          # Start watching for file changes
-fff-daemon watch-off                         # Stop watching for file changes
-fff-daemon shutdown                          # Stop the default daemon
+fff-daemon watch-on                          # Enable file watching (will cause rescan)
+fff-daemon watch-off                         # Disable file watching (will cause rescan)
+fff-daemon shutdown                          # Stop the default daemon, gracefully
 fff-daemon health --sock /tmp/fff-dev.sock   # Control a custom-socket daemon
 ```
 
 Control commands respect `--sock` just like server startup does. You can run
-multiple daemons on different sockets and target them individually.
+multiple daemons on different sockets and target them individually using the `--sock` parameter.
 
 ## Parameters
+
+### Basic parameters
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `directory` | path | `cwd` | Directory to index and serve |
 | `--sock` | path | `/tmp/fff.sock` | Unix domain socket path |
-| `--frecency-db` | path | — | Frecency database directory |
-| `--history-db` | path | — | Query history database directory |
-| `--watch` | flag | — | Watch base directory for changes and auto-rescan |
+| `--disable-watch` | flag | — | Disable the file watcher |
+| `--ai-mode` | flag | `false` | Enable AI-agent optimizations |
 | `--help` | flag | — | Show usage |
+
+### Advanced parameters
+
+| `--frecency-db` | path | — | Frecency database directory. This parameter overrides the `$FFF_FRECENCY_DB` environment variable, and the default is the base directory where daemon is running under `.fff/frecency/`. Note: Directory must exist to be used, or else daemon is running stateless, use `fff-daemon health` to see if configured. |
+| `--history-db` | path | — | Query history database directory. This parameter overrides the `$FFF_HISTORY_DB` environment variable, and the default is the base directory where daemon is running under `.fff/history/`. Note: Directory must exist to be used, or else daemon is running stateless, use `fff-daemon health` to see if configured. |
+| `--log-file-path` | path | — | Tracing log file path used in debugging the fff library, and used for fff library debugging and monitoring. |
+| `--log-level` | string | — | `trace`, `debug`, `info`, `warn`, `error`. Ignored unless `--log-file-path` is set, and used for fff library debugging and monitoring. |
+| `--cache-budget-max-files` | int | `0` | Content cache file-count cap (0 = auto).|
+| `--cache-budget-max-bytes` | int | `0` | Content cache byte cap (0 = auto) |
+| `--cache-budget-max-file-size` | int | `0` | Content cache per-file byte cap (0 = auto) |
+| `--disable-content-indexing` | flag | — | Reduces memory but significantly slows `ffgrep` like not running in daemon mode. |
+| `--disable-mmap-cache` | flag | — | Very slow `ffgrep` like not running in daemon mode. Note: Turning off mmap cache also disables content indexing. |
+
+
 
 ## Environment variables
 
@@ -55,6 +71,7 @@ multiple daemons on different sockets and target them individually.
 | `FFF_DAEMON_SOCK` | Override socket path (default: `/tmp/fff.sock`) |
 | `FFF_FRECENCY_DB` | Frecency database directory |
 | `FFF_HISTORY_DB` | Query history database directory |
+|`FFF_NODE_PATH` | Override `@ff-labs/fff-node` module path |
 
 ## How it works
 
@@ -62,26 +79,39 @@ multiple daemons on different sockets and target them individually.
 - Listens on a Unix domain socket for JSON requests
 - All fff-cli tools (`ffgrep`, `fffind`, `fff-multi-grep`) auto-connect when a daemon is running
 - Falls back silently to local mode if no daemon is listening
-- Trigger rescans manually with `fff-daemon scan`, or use `--watch` for automatic rescans
+- **File watching** — the `FileFinder` library uses `notify-rs` (FSEvents on macOS, inotify on Linux) for incremental auto-updates
+- Trigger full rescans manually with `fff-daemon scan`, which may be needed after a major set of file changes, like a git merge, to ensure everything is indexed.
 
-## File watching (`--watch`)
+## File watching
 
-Enable file-system watching and automatic rescans:
+The `@ff-labs/fff-node` library manages its own file watcher internally. When the daemon starts:
 
 ```bash
-fff-daemon ~/my-project --watch
+fff-daemon ~/my-project
 ```
 
 Output:
 ```
-  Watching /home/user/my-project for changes (debounce: 500ms)
+ File watcher active for /home/user/my-project
 ```
 
-**Debounce:** Changes are debounced for **500ms**. Rapid bursts (e.g. a `git checkout` touching many files) collapse into a single rescan.
+To disable it (e.g. for large repos where watching is too expensive):
 
-**Scan lock:** If a scan is already running when another change fires, it's skipped.
+```bash
+fff-daemon ~/my-project --disable-watch
+```
 
-**Ignored paths:** `.git/` is always ignored.
+Output:
+```
+  File watcher disabled for /home/user/my-project
+```
+
+| Mode | Effect |
+|---|---|
+| Default (no flag) | `notify-rs` watches the tree and incrementally updates the index |
+| `--disable-watch` | No watching; index only updates on `fff-daemon scan` or daemon restart |
+
+`watch-on`/`watch-off` control commands recreate the `FileFinder` with `disableWatch: false` / `disableWatch: true`. This triggers a full rescan after recreation.
 
 ## IPC protocol
 
@@ -104,10 +134,10 @@ echo '{"op":"health","params":{}}' | nc -U /tmp/fff.sock
 | `find` | `query`, `pageIndex`, `pageSize` | Fuzzy file search |
 | `grep` | `query`, `mode`, `smartCase`, `maxMatchesPerFile`, `cursorRaw`, `beforeContext`, `afterContext` | Content search |
 | `multi-grep` | `patterns`, `constraints`, `maxMatchesPerFile`, `smartCase`, `cursorRaw`, `beforeContext`, `afterContext` | Multi-pattern OR search |
-| `scan` | — | Trigger rescan |
+| `scan` | — | Trigger full rescan |
 | `health` | — | Get daemon status (includes `watching` boolean) |
-| `watch-on` | — | Set watching status flag |
-| `watch-off` | — | Clear watching status flag |
+| `watch-on` | — | Enable file watcher |
+| `watch-off` | — | Disable file watcher |
 | `shutdown` | — | Gracefully stop the daemon |
 
 ## Why use the daemon?
@@ -124,14 +154,16 @@ Without the daemon, each tool invocation creates its own `FileFinder` and re-sca
 
 ```bash
 # Terminal 1: start daemon for the project
-fff-daemon ~/my-project --watch
+fff-daemon ~/my-project
 
 # Terminal 2: instant queries (no scan delay)
 ffgrep "TODO" --limit 10
 fffind "*.ts" --limit 5
 fff-multi-grep "FIXME,HACK" --limit 10
 
-# After git pull, the native watcher auto-updates; no manual rescan needed
+# After git pull, the watcher auto-updates the index.
+# For very large changes you may want a full rescan:
+fff-daemon scan
 
 # When done
 fff-daemon shutdown

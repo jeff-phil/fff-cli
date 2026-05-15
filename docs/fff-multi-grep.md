@@ -42,7 +42,7 @@ fff-multi-grep <p1,p2,...> [options]
 | `FFF_HISTORY_DB` | Override query history database path |
 | `FFF_CURSORS_DIR` | Cursor storage directory (default: `/tmp`) |
 | `FFF_DAEMON_SOCK` | Unix socket path for `fff-daemon` (default: `/tmp/fff.sock`). Overridden by `--sock` |
-| `FFF_FFF_NODE_PATH` | Override `@ff-labs/fff-node` module path |
+| `FFF_NODE_PATH` | Override `@ff-labs/fff-node` module path |
 
 The CLI auto-detects databases in this order:
 1. `{basePath}/.local/share/fff/{frecency,history}` (project-local)

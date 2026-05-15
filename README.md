@@ -43,7 +43,7 @@ ln -s /projects/fff-cli/bin/fff-daemon ~/.local/bin/fff-daemon
 
 The tools auto-discover `@ff-labs/fff-node` via:
 
-1. **`FFF_FFF_NODE_PATH`** env var (highest priority)
+1. **`FFF_NODE_PATH`** env var (highest priority)
 2. Direct dependency in `node_modules`
 3. Through `@ff-labs/pi-fff` dependency
 4. `npm config get prefix` global path
@@ -51,7 +51,7 @@ The tools auto-discover `@ff-labs/fff-node` via:
 
 Set it explicitly if FFF is installed somewhere unusual:
 ```bash
-export FFF_FFF_NODE_PATH=/custom/path/@ff-labs/fff-node/dist/src/index.js
+export FFF_NODE_PATH=/custom/path/@ff-labs/fff-node/dist/src/index.js
 ```
 
 ## Quick Reference
@@ -65,7 +65,7 @@ Server mode:
   fff-daemon               Start daemon for current directory
   fff-daemon ~/my-project  Start daemon for specific directory
 
-Client control:
+Client control commands:
   fff-daemon scan          Trigger a rescan in the running daemon
   fff-daemon health        Show daemon status
   fff-daemon watch-on      Start watching for file changes
@@ -73,11 +73,22 @@ Client control:
   fff-daemon shutdown      Stop the running daemon
 
 Options:
-  --frecency-db <path>     Frecency DB
-  --history-db <path>      History DB
-  --sock <path>            Unix socket path (default: $FFF_DAEMON_SOCK or /tmp/fff.sock)
-  --watch                  Watch base directory for changes and auto-rescan
-  --help                   Show this message
+  --sock <path>                     Socket (default: $FFF_DAEMON_SOCK or /tmp/fff.sock)
+  --disable-watch                   Disable file watching
+  --ai-mode                         Enable AI-agent optimizations
+
+Advanced Options (see documenation for details):
+  --frecency-db <path>              Frecency DB
+  --history-db <path>               History DB
+  --log-file-path <path>            Tracing log file path
+  --log-level <level>               trace | debug | info | warn | error
+  --cache-budget-max-files <n>      Cache file-count cap (0 = auto)
+  --cache-budget-max-bytes <n>      Cache byte cap (0 = auto)
+  --cache-budget-max-file-size <n>  Cache per-file byte cap (0 = auto)
+  --disable-content-indexing        Reduces memory but cripples ffgrep
+  --disable-mmap-cache              Very slow ffgrep; and disables content indexing
+
+  --help                            Show this message
 ```
 
 ### ffgrep
@@ -159,7 +170,7 @@ Standalone Options (Non-Daemon mode):
 | `FFF_HISTORY_DB` | Query history database directory |
 | `FFF_CURSORS_DIR` | Cursor JSON storage directory (default: `/tmp`) |
 | `FFF_DAEMON_SOCK` | Unix socket path for `fff-daemon` (default: `/tmp/fff.sock`) |
-| `FFF_FFF_NODE_PATH` | Override `@ff-labs/fff-node` module path |
+| `FFF_NODE_PATH` | Override `@ff-labs/fff-node` module path |
 
 ## Acknowledgements
 
