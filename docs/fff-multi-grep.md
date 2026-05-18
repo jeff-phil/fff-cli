@@ -22,7 +22,8 @@ fff-multi-grep <p1,p2,...> [options]
 | `--context` | number | 0 | Lines of context before **and** after each match. Sets both `--before-context` and `--after-context`. |
 | `-b`, `--before-context` | number | 0 | Lines to show before each match |
 | `-a`, `--after-context` | number | 0 | Lines to show after each match |
-| `-l`, `--limit` | number | 100 | Maximum matches **per file** (capped at 50). Not a total page — all matching files are included, each limited to this value. |
+| `-l`, `--limit` | number | 50 | Maximum matches **per file**. Not a total page — all matching files are included, each limited to this value. Range 1–100. |
+| `-p`, `--page-size` | number | 50 | Number of matched lines per page. 0 = use engine default (50). Note: More may be included to include entire limit per file.|
 | `-n`, `--cursor` | string | 1 | Page number to resume (default: 1, same as no `--cursor`) |
 | `-s`, `--sock` | path | — | Unix socket for `fff-daemon` (overrides `FFF_DAEMON_SOCK`) |
 
@@ -30,7 +31,7 @@ fff-multi-grep <p1,p2,...> [options]
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `--base` | path | `cwd` | Base directory to search |
+| `--base` | path | `cwd` | Base directory to search. Passing this flag forces standalone (non-daemon) mode. |
 | `--frecency-db` | path | — | Path to frecency database directory |
 | `--history-db` | path | — | Path to query history database directory |
 
@@ -50,7 +51,7 @@ The CLI auto-detects databases in this order:
 
 ## Daemon mode
 
-If `fff-daemon` is running for `--base`, `fff-multi-grep` connects via Unix domain socket and searches the warm in-memory index instantly. Falls back to local Standalone mode automatically if no daemon is listening.
+If `fff-daemon` is running, `fff-multi-grep` connects via Unix domain socket and searches the warm in-memory index instantly. Falls back to local Standalone mode automatically if no daemon is listening. Passing `--base` forces standalone (non-daemon) mode.
 
 ## How it works
 
@@ -149,7 +150,7 @@ fff-multi-grep "TODO,FIXME" --limit 50  # Up to 50 lines per matching file
 
 Pages resume from a byte offset, not a fixed line count. Because each page
 includes every matching file (up to the per-file `--limit`), page sizes vary
-with the number of matching files.
+with the number of matching file and limits.
 
 ```bash
 fff-multi-grep "a,b,c" --limit 50
@@ -159,7 +160,7 @@ fff-multi-grep "a,b,c" --cursor 2 --limit 50
 # → [50+ matches (refine patterns). Continue with cursor="3"]
 ```
 
-Page numbers are independent per `patterns|constraints|limit` namespace.
+Page numbers are independent per `patterns|constraints|limit|pageSize` namespace.
 Cursor state is stored in `${FFF_CURSORS_DIR:-~/.local/cache/fff/cursors}/fff-multi-grep-cursors.json`
 and expires after 24 hours or when the store exceeds 200 entries.
 
@@ -183,7 +184,7 @@ engine performance. Brace groups with commas are always preserved as-is.
 | `python pydantic` | `{python/**,pydantic/**}` | Under `python/` **or** `pydantic/` |
 | `python pydantic !pydantic/**/api` | `{python/**,pydantic/**} !pydantic/**/api/**` | Under `python/` **or** `pydantic/`, but not `pydantic/api/` or `pydantic/foo/api/` |
 | `{python/**,pydantic/**}` | `{python/**,pydantic/**}` | Passed through unchanged |
-| `src/ !src/test/` | `{src/**} !src/test/**` | Under `src/` but not `src/test/` |
+| `src/ !src/test/` | `src/** !src/test/**` | Under `src/` but not `src/test/` |
 | `./docs` | `docs/**` | Leading `./` is stripped |
 
 Constraints are space-separated (AND logic). Do not use commas — commas inside `{...}` brace groups are part of the glob syntax and must be preserved.

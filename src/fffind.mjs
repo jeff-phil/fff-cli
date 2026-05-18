@@ -30,11 +30,12 @@ function showHelp(exitCode = 0) {
   sink('Options:');
   sink('  -c, --constraints <...>   Path filter constraints');
   sink('  -l, --limit <N>           Max results per page (default: 30)');
+  sink('  -p, --page-size <N>       Alias for --limit (default: 30)');
   sink('  -n, --cursor <id>         Page number (default: 1)');
   sink('  -s, --sock <path>         Daemon socket (default: $FFF_DAEMON_SOCK or /tmp/fff.sock)');
   sink('');
   sink('Standalone Options (Non-Daemon mode):');
-  sink('      --base <path>         Base directory');
+  sink('      --base <path>         Base directory (forces standalone mode)');
   sink('      --frecency-db <path>  Frecency DB');
   sink('      --history-db <path>   History DB');
   sink('');
@@ -47,17 +48,23 @@ function parseArgs(argv) {
     pattern: undefined, basePath: process.cwd(), constraints: undefined,
     limit: 30, cursor: undefined,
     frecencyDbPath: undefined, historyDbPath: undefined, sockPath: undefined,
+    basePathExplicit: false,
   };
   const remaining = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     switch (arg) {
       case '--help': showHelp(); break;
-      case '--base': result.basePath = argv[++i]; break;
+      case '--base': result.basePath = argv[++i]; result.basePathExplicit = true; break;
       case '-c': case '--constraints': result.constraints = argv[++i]; break;
       case '-l': case '--limit': {
         const n = parseInt(argv[++i], 10);
         if (Number.isNaN(n)) { console.error(`${NAME}: --limit requires a number`); process.exit(1); }
+        result.limit = n; break;
+      }
+      case '-p': case '--page-size': {
+        const n = parseInt(argv[++i], 10);
+        if (Number.isNaN(n)) { console.error(`${NAME}: --page-size requires a number`); process.exit(1); }
         result.limit = n; break;
       }
       case '-n': case '--cursor': result.cursor = argv[++i]; break;
@@ -161,22 +168,24 @@ const effectiveLimit = args.limit ?? 30;
 
 let result, viaDaemon = false;
 
-const daemonOk = await ipcAvailable();
-if (daemonOk) {
-  try {
-    console.log(`→ [via daemon ${getSockPath()}] Searching: "${query}"`);
-    viaDaemon = true;
-    const stored = cursors.retrieve(cursors.makeQueryKey(args.pattern, args.constraints, args.limit), pageNum);
-    if (pageNum !== 1 && !stored) {
-      console.error(`Cursor ${pageNum} not found for this query. Run without --cursor first.`);
-      process.exit(1);
+if (!args.basePathExplicit) {
+  const daemonOk = await ipcAvailable();
+  if (daemonOk) {
+    try {
+      console.log(`→ [via daemon ${getSockPath()}] Searching: "${query}"`);
+      viaDaemon = true;
+      const stored = cursors.retrieve(cursors.makeQueryKey(args.pattern, args.constraints, args.limit), pageNum);
+      if (pageNum !== 1 && !stored) {
+        console.error(`Cursor ${pageNum} not found for this query. Run without --cursor first.`);
+        process.exit(1);
+      }
+      const pageIndex = (pageNum === 1) ? 0 : (stored.pageIndex ?? 0);
+      result = await dslFind(query, pageIndex, effectiveLimit);
+    } catch (e) {
+      console.warn('Daemon request failed, falling back to local:', e.message);
+      result = null;
+      viaDaemon = false;
     }
-    const pageIndex = (pageNum === 1) ? 0 : (stored.pageIndex ?? 0);
-    result = await dslFind(query, pageIndex, effectiveLimit);
-  } catch (e) {
-    console.warn('Daemon request failed, falling back to local:', e.message);
-    result = null;
-    viaDaemon = false;
   }
 }
 

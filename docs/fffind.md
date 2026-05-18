@@ -20,6 +20,7 @@ fffind <pattern> [options]
 | `pattern` | string | *(required)* | Fuzzy search pattern (matches against whole path) |
 | `-c`, `--constraints` | string | — | Path constraints: includes and excludes (e.g. `"src/ *.ts !test/ !*.min.js"`) |
 | `-l`, `--limit` | number | 30 | Maximum results per page |
+| `-p`, `--page-size` | number | 30 | Alias for `--limit` |
 | `-n`, `--cursor` | string | 1 | Page number to resume (default: 1, same as no `--cursor`) |
 | `-s`, `--sock` | path | — | Unix socket for `fff-daemon` (overrides `FFF_DAEMON_SOCK`) |
 
@@ -28,7 +29,7 @@ fffind <pattern> [options]
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `--base` | path | `cwd` | Base directory to search |
+| `--base` | path | `cwd` | Base directory to search. Passing this flag forces standalone (non-daemon) mode. |
 | `--frecency-db` | path | — | Path to frecency database directory |
 | `--history-db` | path | — | Path to query history database directory |
 
@@ -70,7 +71,7 @@ The CLI auto-detects databases in this order:
 
 ## Daemon mode
 
-If `fff-daemon` is running for `--base`, `fffind` connects via Unix domain socket and searches the warm in-memory index instantly. Falls back to local Standalone mode automatically if no daemon is listening.
+If `fff-daemon` is running, `fffind` connects via Unix domain socket and searches the warm in-memory index instantly. Falls back to local Standalone mode automatically if no daemon is listening. Passing `--base` forces standalone (non-daemon) mode.
 
 ## How it works
 

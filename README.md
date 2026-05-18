@@ -103,12 +103,13 @@ Options:
       --context <N>         Context lines before and after each match
   -b, --before-context <N>  Lines before each match
   -a, --after-context <N>   Lines after each match
-  -l, --limit <N>           Max matches per file, capped at 50 (default: 100)
+  -l, --limit <N>           Max matches per file (default: 50, max 100)
+  -p, --page-size <N>       Number of matched files per page (default: 50)
   -n, --cursor <id>         Page number (default: 1)
   -s, --sock <path>         Daemon socket (default: $FFF_DAEMON_SOCK or /tmp/fff.sock)
 
 Standalone Options (Non-Daemon mode):
-      --base <path>         Base directory
+      --base <path>         Base directory (forces standalone mode)
       --frecency-db <path>  Frecency DB
       --history-db <path>   History DB
 
@@ -122,11 +123,12 @@ Usage: fffind <pattern> [options]
 Options:
   -c, --constraints <...>   Path filter constraints
   -l, --limit <N>           Max results per page (default: 30)
+  -p, --page-size <N>       Alias for --limit (default: 30)
   -n, --cursor <id>         Page number (default: 1)
   -s, --sock <path>         Daemon socket (default: $FFF_DAEMON_SOCK or /tmp/fff.sock)
 
 Standalone Options (Non-Daemon mode):
-      --base <path>         Base directory
+      --base <path>         Base directory (forces standalone mode)
       --frecency-db <path>  Frecency DB
       --history-db <path>   History DB
 
@@ -143,12 +145,13 @@ Options:
       --context <N>         Lines before and after each match
   -b, --before-context <N>  Lines before each match
   -a, --after-context <N>   Lines after each match
-  -l, --limit <N>           Max matches per file, capped at 50 (default: 100)
+  -l, --limit <N>           Max matches per file (default: 50, max 100)
+  -p, --page-size <N>       Number of matched files per page (default: 50)
   -n, --cursor <id>         Page number (default: 1)
   -s, --sock <path>         Daemon socket (default: $FFF_DAEMON_SOCK or /tmp/fff.sock)
 
 Standalone Options (Non-Daemon mode):
-      --base <path>         Base directory
+      --base <path>         Base directory (forces standalone mode)
       --frecency-db <path>  Frecency DB
       --history-db <path>   History DB
 

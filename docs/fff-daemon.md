@@ -132,8 +132,8 @@ echo '{"op":"health","params":{}}' | nc -U /tmp/fff.sock
 | Op | Params | Description |
 |---|---|---|
 | `find` | `query`, `pageIndex`, `pageSize` | Fuzzy file search |
-| `grep` | `query`, `mode`, `smartCase`, `maxMatchesPerFile`, `cursorRaw`, `beforeContext`, `afterContext` | Content search |
-| `multi-grep` | `patterns`, `constraints`, `maxMatchesPerFile`, `smartCase`, `cursorRaw`, `beforeContext`, `afterContext` | Multi-pattern OR search |
+| `grep` | `query`, `mode`, `smartCase`, `maxMatchesPerFile`, `pageSize`, `cursorRaw`, `beforeContext`, `afterContext` | Content search |
+| `multi-grep` | `patterns`, `constraints`, `maxMatchesPerFile`, `pageSize`, `smartCase`, `cursorRaw`, `beforeContext`, `afterContext` | Multi-pattern OR search |
 | `scan` | — | Trigger full rescan |
 | `health` | — | Get daemon status (includes `watching` boolean) |
 | `watch-on` | — | Enable file watcher |

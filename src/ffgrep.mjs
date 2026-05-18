@@ -39,12 +39,13 @@ function showHelp(exitCode = 0) {
   sink('      --context <N>         Context lines before and after each match');
   sink('  -b, --before-context <N>  Lines before each match');
   sink('  -a, --after-context <N>   Lines after each match');
-  sink('  -l, --limit <N>           Max matches per file, capped at 50 (default: 100)');
+  sink('  -l, --limit <N>           Max matches per file (default: 50, max 100)');
+  sink('  -p, --page-size <N>       Number of matched files per page (default: 50)');
   sink('  -n, --cursor <id>         Page number (default: 1)');
   sink('  -s, --sock <path>         Daemon socket (default: $FFF_DAEMON_SOCK or /tmp/fff.sock)');
   sink('');
   sink('Standalone Options (Non-Daemon mode):');
-  sink('      --base <path>         Base directory');
+  sink('      --base <path>         Base directory (forces standalone mode)');
   sink('      --frecency-db <path>  Frecency DB');
   sink('      --history-db <path>   History DB');
   sink('');
@@ -57,8 +58,9 @@ function parseArgs(argv) {
     pattern: undefined, basePath: undefined, constraints: undefined,
     ignoreCase: false, literal: undefined,
     beforeContext: 0, afterContext: 0,
-    limit: 100, cursor: undefined,
+    limit: 50, pageSize: 0, cursor: undefined,
     frecencyDbPath: undefined, historyDbPath: undefined, sockPath: undefined,
+    basePathExplicit: false,
   };
   const remaining = [];
   for (let i = 0; i < argv.length; i++) {
@@ -89,8 +91,13 @@ function parseArgs(argv) {
         if (Number.isNaN(n)) { console.error(`${NAME}: --limit requires a number`); process.exit(1); }
         result.limit = n; break;
       }
+      case '-p': case '--page-size': {
+        const n = parseInt(argv[++i], 10);
+        if (Number.isNaN(n)) { console.error(`${NAME}: --page-size requires a number`); process.exit(1); }
+        result.pageSize = n; break;
+      }
       case '-n': case '--cursor': result.cursor = argv[++i]; break;
-      case '--base': result.basePath = argv[++i]; break;
+      case '--base': result.basePath = argv[++i]; result.basePathExplicit = true; break;
       case '--frecency-db': result.frecencyDbPath = argv[++i]; break;
       case '--history-db': result.historyDbPath = argv[++i]; break;
       case '-s': case '--sock': result.sockPath = argv[++i]; break;
@@ -164,7 +171,7 @@ async function runLocal(args) {
   const query = normalizedConstraints ? `${normalizedConstraints} ${args.pattern}` : args.pattern;
   console.log(`→ Grepping: "${query}" (mode: ${mode})`);
 
-  const queryKey = cursors.makeQueryKey(args.pattern, args.constraints, args.limit);
+  const queryKey = cursors.makeQueryKey(args.pattern, args.constraints, args.limit, args.pageSize);
   const pageNum = parseInt(args.cursor || '1', 10);
   const stored = cursors.retrieve(queryKey, pageNum);
   let nativeCursor = null;
@@ -180,7 +187,8 @@ async function runLocal(args) {
 
   const grepResult = finder.grep(query, {
     mode, smartCase: !args.ignoreCase,
-    maxMatchesPerFile: Math.min(Math.max(1, args.limit), 50),
+    maxMatchesPerFile: Math.min(Math.max(1, args.limit), 100),
+    pageSize: args.pageSize || 0,
     cursor: nativeCursor,
     beforeContext: args.beforeContext, afterContext: args.afterContext,
     classifyDefinitions: true,
@@ -204,34 +212,37 @@ const query = normalizedConstraints ? `${normalizedConstraints} ${args.pattern}`
 let result;
 let viaDaemon = false;
 
-const daemonOk = await ipcAvailable();
-if (daemonOk) {
-  try {
-    console.log(`→ [via daemon ${getSockPath()}] Grepping: "${query}" (mode: ${mode})`);
-    viaDaemon = true;
-    const queryKey = cursors.makeQueryKey(args.pattern, args.constraints, args.limit);
-    const pageNum = parseInt(args.cursor || '1', 10);
-    const stored = cursors.retrieve(queryKey, pageNum);
-    let cursorRaw = null;
-    if (pageNum !== 1) {
-      if (!stored) {
-        console.error(`Cursor ${pageNum} not found for this query. Run without --cursor first, or use a valid page number.`);
-        process.exit(1);
+if (!args.basePathExplicit) {
+  const daemonOk = await ipcAvailable();
+  if (daemonOk) {
+    try {
+      console.log(`→ [via daemon ${getSockPath()}] Grepping: "${query}" (mode: ${mode})`);
+      viaDaemon = true;
+      const queryKey = cursors.makeQueryKey(args.pattern, args.constraints, args.limit, args.pageSize);
+      const pageNum = parseInt(args.cursor || '1', 10);
+      const stored = cursors.retrieve(queryKey, pageNum);
+      let cursorRaw = null;
+      if (pageNum !== 1) {
+        if (!stored) {
+          console.error(`Cursor ${pageNum} not found for this query. Run without --cursor first, or use a valid page number.`);
+          process.exit(1);
+        }
+        cursorRaw = { _offset: stored.offset };
       }
-      cursorRaw = { _offset: stored.offset };
+      result = await dslGrep(query, {
+        mode,
+        smartCase: !args.ignoreCase,
+        limit: args.limit,
+        pageSize: args.pageSize,
+        cursorRaw,
+        beforeContext: args.beforeContext,
+        afterContext: args.afterContext,
+      });
+    } catch (e) {
+      console.warn('Daemon request failed, falling back to local:', e.message);
+      result = null;
+      viaDaemon = false;
     }
-    result = await dslGrep(query, {
-      mode,
-      smartCase: !args.ignoreCase,
-      limit: args.limit,
-      cursorRaw,
-      beforeContext: args.beforeContext,
-      afterContext: args.afterContext,
-    });
-  } catch (e) {
-    console.warn('Daemon request failed, falling back to local:', e.message);
-    result = null;
-    viaDaemon = false;
   }
 }
 
@@ -247,7 +258,7 @@ if (result.nextCursor || result.nextCursor === null) {
   const nextOffset = result.nextCursor?._offset ?? null;
   if (nextOffset !== null) {
     const nextPage = parseInt(args.cursor || '1', 10) + 1;
-    const queryKey = cursors.makeQueryKey(args.pattern, args.constraints, args.limit);
+    const queryKey = cursors.makeQueryKey(args.pattern, args.constraints, args.limit, args.pageSize);
     cursors.store(queryKey, args.pattern, args.constraints, args.limit, nextPage, { offset: nextOffset });
     notices.push(`Continue with cursor="${nextPage}"`);
   }

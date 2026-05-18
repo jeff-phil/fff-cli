@@ -24,7 +24,8 @@ ffgrep <pattern> [options]
 | `--context` | number | 0 | Lines of context before **and** after each match. Sets both `--before-context` and `--after-context`. |
 | `-b`, `--before-context` | number | 0 | Lines to show before each match |
 | `-a`, `--after-context` | number | 0 | Lines to show after each match |
-| `-l`, `--limit` | number | 100 | Maximum matches **per file** (capped at 50). Controls how many matching lines are returned from any single file. **Not** a total page — all matching files are included, each limited to this value. |
+| `-l`, `--limit` | number | 50 | Maximum matches **per file**. Controls how many matching lines are returned from any single file. **Not** a total page — all matching files are included, each limited to this value. Range 1–100. |
+| `-p`, `--page-size` | number | 50 | Number of matched lines per page. 0 = use engine default (50). Note: More may be included to include entire limit per file. |
 | `-n`, `--cursor` | string | 1 | Page number to resume (default: 1, same as no `--cursor`) |
 | `-s`, `--sock` | path | — | Unix socket for `fff-daemon` (overrides `FFF_DAEMON_SOCK`) |
 
@@ -33,7 +34,7 @@ ffgrep <pattern> [options]
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `--base` | path | `cwd` | Base directory to search |
+| `--base` | path | `cwd` | Base directory to search. Passing this flag forces standalone (non-daemon) mode. |
 | `--frecency-db` | path | — | Path to frecency database directory |
 | `--history-db` | path | — | Path to query history database directory |
 
@@ -81,7 +82,7 @@ Command-line flags take precedence, then env vars, then auto-detection.
 
 ## Daemon mode
 
-If `fff-daemon` is running for `--base`, `ffgrep` connects via Unix domain socket instead of creating its own `FileFinder`. The query is executed instantly against the warm in-memory index — no scan delay.
+If `fff-daemon` is running, `ffgrep` connects via Unix domain socket instead of creating its own `FileFinder`. The query is executed instantly against the warm in-memory index — no scan delay. Passing `--base` forces standalone (non-daemon) mode.
 
 ```bash
 # Terminal 1
@@ -212,7 +213,7 @@ ffgrep "FIXME" --limit 5
 # → [Continue with cursor="2"]
 ```
 
-Each unique `pattern|constraints|limit` gets its own cursor namespace — changing
+Each unique `pattern|constraints|limit|pageSize` gets its own cursor namespace — changing
 either key restarts pagination at page 1.
 
 Cursor state is stored in `${FFF_CURSORS_DIR:-~/.local/cache/fff/cursors}/ffgrep-cursors.json` and

@@ -71,8 +71,10 @@ export function createStore(filename) {
     }
   }
 
-  function makeQueryKey(pattern, constraints, limit) {
-    return `${pattern}|${constraints || ''}|${limit}`;
+  function makeQueryKey(pattern, constraints, limit, pageSize) {
+    const ps = pageSize != null ? pageSize : 0;
+    if (ps === 0) return `${pattern}|${constraints || ''}|${limit}`;
+    return `${pattern}|${constraints || ''}|${limit}|${ps}`;
   }
 
   function store(queryKey, pattern, constraints, limit, pageNumber, payload) {

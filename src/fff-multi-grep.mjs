@@ -34,12 +34,13 @@ function showHelp(exitCode = 0) {
   sink('      --context <N>         Lines before and after each match');
   sink('  -b, --before-context <N>  Lines before each match');
   sink('  -a, --after-context <N>   Lines after each match');
-  sink('  -l, --limit <N>           Max matches per file, capped at 50 (default: 100)');
+  sink('  -l, --limit <N>           Max matches per file (default: 50, max 100)');
+  sink('  -p, --page-size <N>       Number of matched files per page (default: 50)');
   sink('  -n, --cursor <id>         Page number (default: 1)');
   sink('  -s, --sock <path>         Daemon socket (default: $FFF_DAEMON_SOCK or /tmp/fff.sock)');
   sink('');
   sink('Standalone Options (Non-Daemon mode):');
-  sink('      --base <path>         Base directory');
+  sink('      --base <path>         Base directory (forces standalone mode)');
   sink('      --frecency-db <path>  Frecency DB');
   sink('      --history-db <path>   History DB');
   sink('');
@@ -50,8 +51,9 @@ function showHelp(exitCode = 0) {
 function parseArgs(argv) {
   const result = {
     patterns: undefined, basePath: process.cwd(), constraints: undefined,
-    ignoreCase: false, beforeContext: 0, afterContext: 0, limit: 100, cursor: undefined,
+    ignoreCase: false, beforeContext: 0, afterContext: 0, limit: 50, pageSize: 0, cursor: undefined,
     frecencyDbPath: undefined, historyDbPath: undefined, sockPath: undefined,
+    basePathExplicit: false,
   };
   const remaining = [];
   for (let i = 0; i < argv.length; i++) {
@@ -80,8 +82,13 @@ function parseArgs(argv) {
         if (Number.isNaN(n)) { console.error(`${NAME}: --limit requires a number`); process.exit(1); }
         result.limit = n; break;
       }
+      case '-p': case '--page-size': {
+        const n = parseInt(argv[++i], 10);
+        if (Number.isNaN(n)) { console.error(`${NAME}: --page-size requires a number`); process.exit(1); }
+        result.pageSize = n; break;
+      }
       case '-n': case '--cursor': result.cursor = argv[++i]; break;
-      case '--base': result.basePath = argv[++i]; break;
+      case '--base': result.basePath = argv[++i]; result.basePathExplicit = true; break;
       case '--frecency-db': result.frecencyDbPath = argv[++i]; break;
       case '--history-db': result.historyDbPath = argv[++i]; break;
       case '-s': case '--sock': result.sockPath = argv[++i]; break;
@@ -123,7 +130,8 @@ async function runLocal(args, patterns, pageNum, cursor, normalizedConstraints) 
 
   const grepResult = finder.multiGrep({
     patterns, constraints: normalizedConstraints,
-    maxMatchesPerFile: Math.min(Math.max(1, args.limit), 50),
+    maxMatchesPerFile: Math.min(Math.max(1, args.limit), 100),
+    pageSize: args.pageSize || 0,
     smartCase: !args.ignoreCase, cursor,
     beforeContext: args.beforeContext, afterContext: args.afterContext,
     classifyDefinitions: true,
@@ -149,38 +157,41 @@ const pageNum = parseInt(args.cursor || '1', 10);
 
 let result, viaDaemon = false;
 
-const daemonOk = await ipcAvailable();
-if (daemonOk) {
-  try {
-    console.log(`→ [via daemon ${getSockPath()}] Multi-grepping ${patterns.length} patterns: ${patterns.map(p => `"${p}"`).join(', ')}`);
-    viaDaemon = true;
-    const queryKey = cursors.makeQueryKey(patternStr, normalizedConstraints, args.limit);
-    const stored = cursors.retrieve(queryKey, pageNum);
-    let cursorRaw = null;
-    if (pageNum !== 1) {
-      if (!stored) {
-        console.error(`Cursor ${pageNum} not found for this query. Run without --cursor first.`);
-        process.exit(1);
+if (!args.basePathExplicit) {
+  const daemonOk = await ipcAvailable();
+  if (daemonOk) {
+    try {
+      console.log(`→ [via daemon ${getSockPath()}] Multi-grepping ${patterns.length} patterns: ${patterns.map(p => `"${p}"`).join(', ')}`);
+      viaDaemon = true;
+      const queryKey = cursors.makeQueryKey(patternStr, normalizedConstraints, args.limit, args.pageSize);
+      const stored = cursors.retrieve(queryKey, pageNum);
+      let cursorRaw = null;
+      if (pageNum !== 1) {
+        if (!stored) {
+          console.error(`Cursor ${pageNum} not found for this query. Run without --cursor first.`);
+          process.exit(1);
+        }
+        cursorRaw = { _offset: stored.offset };
       }
-      cursorRaw = { _offset: stored.offset };
+      result = await dslMultiGrep(patterns, {
+        constraints: normalizedConstraints,
+        limit: args.limit,
+        pageSize: args.pageSize,
+        smartCase: !args.ignoreCase,
+        cursorRaw,
+        beforeContext: args.beforeContext,
+        afterContext: args.afterContext,
+      });
+    } catch (e) {
+      console.warn('Daemon request failed, falling back to local:', e.message);
+      result = null;
+      viaDaemon = false;
     }
-    result = await dslMultiGrep(patterns, {
-      constraints: normalizedConstraints,
-      limit: args.limit,
-      smartCase: !args.ignoreCase,
-      cursorRaw,
-      beforeContext: args.beforeContext,
-      afterContext: args.afterContext,
-    });
-  } catch (e) {
-    console.warn('Daemon request failed, falling back to local:', e.message);
-    result = null;
-    viaDaemon = false;
   }
 }
 
 if (!result) {
-  const queryKey = cursors.makeQueryKey(patternStr, normalizedConstraints, args.limit);
+  const queryKey = cursors.makeQueryKey(patternStr, normalizedConstraints, args.limit, args.pageSize);
   const stored = cursors.retrieve(queryKey, pageNum);
   let cursor = null;
   if (pageNum !== 1) {
@@ -199,7 +210,7 @@ if ((result.items?.length ?? 0) >= args.limit) notices.push(`${args.limit}+ matc
 const nextOffset = result.nextCursor?._offset ?? null;
 if (nextOffset !== null) {
   const nextPage = pageNum + 1;
-  cursors.store(cursors.makeQueryKey(patternStr, normalizedConstraints, args.limit), patternStr, normalizedConstraints, args.limit, nextPage, { offset: nextOffset });
+  cursors.store(cursors.makeQueryKey(patternStr, normalizedConstraints, args.limit, args.pageSize), patternStr, normalizedConstraints, args.limit, nextPage, { offset: nextOffset });
   notices.push(`Continue with cursor="${nextPage}"`);
 }
 if (viaDaemon) notices.push('via daemon');
