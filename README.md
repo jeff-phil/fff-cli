@@ -77,7 +77,7 @@ Options:
   --disable-watch                   Disable file watching
   --ai-mode                         Enable AI-agent optimizations
 
-Advanced Options (see documenation for details):
+Advanced Options (see documentation for details):
   --frecency-db <path>              Frecency DB
   --history-db <path>               History DB
   --log-file-path <path>            Tracing log file path
@@ -168,7 +168,7 @@ Standalone Options (Non-Daemon mode):
 |---|---|
 | `FFF_FRECENCY_DB` | Frecency database directory |
 | `FFF_HISTORY_DB` | Query history database directory |
-| `FFF_CURSORS_DIR` | Cursor JSON storage directory (default: `/tmp`) |
+| `FFF_CURSORS_DIR` | Cursor JSON storage directory (default: `~/.local/cache/fff/cursors`) |
 | `FFF_DAEMON_SOCK` | Unix socket path for `fff-daemon` (default: `/tmp/fff.sock`) |
 | `FFF_NODE_PATH` | Override `@ff-labs/fff-node` module path |
 

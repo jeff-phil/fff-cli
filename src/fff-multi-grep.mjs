@@ -6,45 +6,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { homedir } from 'node:os';
 
 const SRC_DIR = path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)));
 const { resolveFffNode } = await import(path.join(SRC_DIR, 'resolve-fff.mjs'));
 const { createStore } = await import(path.join(SRC_DIR, 'cursor-store.mjs'));
+const { resolveDbPaths } = await import(path.join(SRC_DIR, 'db-paths.mjs'));
 const {
   ipcAvailable, dslMultiGrep, setSockPath, getSockPath,
 } = await import(path.join(SRC_DIR, 'ipc-client.mjs'));
+const { formatGrepOutput } = await import(path.join(SRC_DIR, 'grep-format.mjs'));
+const { normalizeConstraints } = await import(path.join(SRC_DIR, 'normalize-constraints.mjs'));
 
 const { FileFinder } = await resolveFffNode();
 const NAME = path.basename(process.argv[1] || 'fff-multi-grep.mjs');
 const cursors = createStore('fff-multi-grep-cursors.json');
-
-// ---------------------------------------------------------------------------
-// DB path resolution
-// ---------------------------------------------------------------------------
-
-function resolveDbPaths(basePath) {
-  let frecencyDbPath = process.env.FFF_FRECENCY_DB ?? undefined;
-  let historyDbPath = process.env.FFF_HISTORY_DB ?? undefined;
-
-  if (!frecencyDbPath) {
-    const autoBase = path.join(basePath, '.local/share/fff/frecency');
-    try { if (fs.statSync(autoBase).isDirectory()) frecencyDbPath = autoBase; } catch {}
-  }
-  if (!frecencyDbPath) {
-    const autoHome = path.join(homedir(), '.local/share/fff/frecency');
-    try { if (fs.statSync(autoHome).isDirectory()) frecencyDbPath = autoHome; } catch {}
-  }
-  if (!historyDbPath) {
-    const autoBase = path.join(basePath, '.local/share/fff/history');
-    try { if (fs.statSync(autoBase).isDirectory()) historyDbPath = autoBase; } catch {}
-  }
-  if (!historyDbPath) {
-    const autoHome = path.join(homedir(), '.local/share/fff/history');
-    try { if (fs.statSync(autoHome).isDirectory()) historyDbPath = autoHome; } catch {}
-  }
-  return { frecencyDbPath, historyDbPath };
-}
 
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -87,11 +62,24 @@ function parseArgs(argv) {
       case '-i': case '--ignore-case': result.ignoreCase = true; break;
       case '--context': {
         const n = parseInt(argv[++i], 10);
+        if (Number.isNaN(n)) { console.error(`${NAME}: --context requires a number`); process.exit(1); }
         result.beforeContext = n; result.afterContext = n; break;
       }
-      case '-b': case '--before-context': result.beforeContext = parseInt(argv[++i], 10); break;
-      case '-a': case '--after-context': result.afterContext = parseInt(argv[++i], 10); break;
-      case '-l': case '--limit': result.limit = parseInt(argv[++i], 10); break;
+      case '-b': case '--before-context': {
+        const n = parseInt(argv[++i], 10);
+        if (Number.isNaN(n)) { console.error(`${NAME}: --before-context requires a number`); process.exit(1); }
+        result.beforeContext = n; break;
+      }
+      case '-a': case '--after-context': {
+        const n = parseInt(argv[++i], 10);
+        if (Number.isNaN(n)) { console.error(`${NAME}: --after-context requires a number`); process.exit(1); }
+        result.afterContext = n; break;
+      }
+      case '-l': case '--limit': {
+        const n = parseInt(argv[++i], 10);
+        if (Number.isNaN(n)) { console.error(`${NAME}: --limit requires a number`); process.exit(1); }
+        result.limit = n; break;
+      }
       case '-n': case '--cursor': result.cursor = argv[++i]; break;
       case '--base': result.basePath = argv[++i]; break;
       case '--frecency-db': result.frecencyDbPath = argv[++i]; break;
@@ -107,46 +95,10 @@ function parseArgs(argv) {
 }
 
 // ---------------------------------------------------------------------------
-// Output formatting
-// ---------------------------------------------------------------------------
-
-const GREP_MAX_LINE_LENGTH = 500;
-function truncateLine(line, max = GREP_MAX_LINE_LENGTH) {
-  const t = line.trim();
-  return t.length <= max ? t : `${t.slice(0, max)}...`;
-}
-function fffFileAnnotation(item) {
-  const g = item.gitStatus;
-  return (g && g !== 'clean' && g !== 'unknown' && g !== '') ? `  [${g} in git]` : '';
-}
-function formatGrepOutput(result) {
-  if (!result.items || result.items.length === 0) return 'No matches found';
-  const lines = [];
-  let currentFile = '';
-  for (const match of result.items) {
-    if (match.relativePath !== currentFile) {
-      if (lines.length > 0) lines.push('');
-      currentFile = match.relativePath;
-      lines.push(`${currentFile}${fffFileAnnotation(match)}`);
-    }
-    match.contextBefore?.forEach((line, i) => {
-      const ln = match.lineNumber - match.contextBefore.length + i;
-      lines.push(` ${ln}- ${truncateLine(line)}`);
-    });
-    lines.push(` ${match.lineNumber}: ${truncateLine(match.lineContent)}`);
-    match.contextAfter?.forEach((line, i) => {
-      const ln = match.lineNumber + 1 + i;
-      lines.push(` ${ln}- ${truncateLine(line)}`);
-    });
-  }
-  return lines.join('\n');
-}
-
-// ---------------------------------------------------------------------------
 // Local fallback
 // ---------------------------------------------------------------------------
 
-async function runLocal(args, patterns, pageNum, cursor) {
+async function runLocal(args, patterns, pageNum, cursor, normalizedConstraints) {
   console.log(`→ Creating FileFinder for: ${args.basePath}`);
   const { frecencyDbPath, historyDbPath } = resolveDbPaths(args.basePath);
   const finderResult = FileFinder.create({
@@ -170,7 +122,7 @@ async function runLocal(args, patterns, pageNum, cursor) {
   console.log(`→ Multi-grepping ${patterns.length} patterns: ${patterns.map(p => `"${p}"`).join(', ')}`);
 
   const grepResult = finder.multiGrep({
-    patterns, constraints: args.constraints,
+    patterns, constraints: normalizedConstraints,
     maxMatchesPerFile: Math.min(Math.max(1, args.limit), 50),
     smartCase: !args.ignoreCase, cursor,
     beforeContext: args.beforeContext, afterContext: args.afterContext,
@@ -191,6 +143,7 @@ if (!args.patterns) showHelp(1);
 const patterns = args.patterns.split(',').map(p => p.trim()).filter(Boolean);
 if (patterns.length === 0) { console.error('Error: --patterns must contain at least one pattern'); process.exit(1); }
 
+const normalizedConstraints = normalizeConstraints(args.constraints);
 const patternStr = patterns.join(',');
 const pageNum = parseInt(args.cursor || '1', 10);
 
@@ -201,7 +154,7 @@ if (daemonOk) {
   try {
     console.log(`→ [via daemon ${getSockPath()}] Multi-grepping ${patterns.length} patterns: ${patterns.map(p => `"${p}"`).join(', ')}`);
     viaDaemon = true;
-    const queryKey = cursors.makeQueryKey(patternStr, args.constraints, args.limit);
+    const queryKey = cursors.makeQueryKey(patternStr, normalizedConstraints, args.limit);
     const stored = cursors.retrieve(queryKey, pageNum);
     let cursorRaw = null;
     if (pageNum !== 1) {
@@ -212,7 +165,7 @@ if (daemonOk) {
       cursorRaw = { _offset: stored.offset };
     }
     result = await dslMultiGrep(patterns, {
-      constraints: args.constraints,
+      constraints: normalizedConstraints,
       limit: args.limit,
       smartCase: !args.ignoreCase,
       cursorRaw,
@@ -227,7 +180,7 @@ if (daemonOk) {
 }
 
 if (!result) {
-  const queryKey = cursors.makeQueryKey(patternStr, args.constraints, args.limit);
+  const queryKey = cursors.makeQueryKey(patternStr, normalizedConstraints, args.limit);
   const stored = cursors.retrieve(queryKey, pageNum);
   let cursor = null;
   if (pageNum !== 1) {
@@ -237,16 +190,16 @@ if (!result) {
     }
     cursor = { __brand: 'GrepCursor', _offset: stored.offset };
   }
-  result = await runLocal(args, patterns, pageNum, cursor);
+  result = await runLocal(args, patterns, pageNum, cursor, normalizedConstraints);
 }
 
-let output = formatGrepOutput(result);
+let output = formatGrepOutput(result, args.basePath);
 const notices = [];
 if ((result.items?.length ?? 0) >= args.limit) notices.push(`${args.limit}+ matches (refine patterns)`);
 const nextOffset = result.nextCursor?._offset ?? null;
 if (nextOffset !== null) {
   const nextPage = pageNum + 1;
-  cursors.store(cursors.makeQueryKey(patternStr, args.constraints, args.limit), patternStr, args.constraints, args.limit, nextPage, { offset: nextOffset });
+  cursors.store(cursors.makeQueryKey(patternStr, normalizedConstraints, args.limit), patternStr, normalizedConstraints, args.limit, nextPage, { offset: nextOffset });
   notices.push(`Continue with cursor="${nextPage}"`);
 }
 if (viaDaemon) notices.push('via daemon');

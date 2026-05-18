@@ -14,7 +14,7 @@ If no directory is given, uses the current working directory.
 
 ```bash
 # Terminal 1
-fff-daemon ~/my-project
+fff-daemon ~/projects/my-project
 
 # Daemon output:
 → Creating FileFinder for: /home/user/my-project
@@ -87,7 +87,7 @@ multiple daemons on different sockets and target them individually using the `--
 The `@ff-labs/fff-node` library manages its own file watcher internally. When the daemon starts:
 
 ```bash
-fff-daemon ~/my-project
+fff-daemon ~/projects/my-project
 ```
 
 Output:
@@ -98,7 +98,7 @@ Output:
 To disable it (e.g. for large repos where watching is too expensive):
 
 ```bash
-fff-daemon ~/my-project --disable-watch
+fff-daemon ~/projects/my-project --disable-watch
 ```
 
 Output:
@@ -154,7 +154,7 @@ Without the daemon, each tool invocation creates its own `FileFinder` and re-sca
 
 ```bash
 # Terminal 1: start daemon for the project
-fff-daemon ~/my-project
+fff-daemon ~/projects/my-project
 
 # Terminal 2: instant queries (no scan delay)
 ffgrep "TODO" --limit 10
@@ -173,7 +173,7 @@ fff-daemon shutdown
 
 ```bash
 # Detached, survives terminal
-nohup fff-daemon ~/my-project > /tmp/fff-daemon.log 2>&1 &
+nohup fff-daemon ~/projects/my-project > /tmp/fff-daemon.log 2>&1 &
 
 # Systemd or launchd integration can use the same command
 ```

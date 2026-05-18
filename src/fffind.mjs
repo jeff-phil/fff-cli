@@ -6,45 +6,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { homedir } from 'node:os';
 
 const SRC_DIR = path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)));
 const { resolveFffNode } = await import(path.join(SRC_DIR, 'resolve-fff.mjs'));
 const { createStore } = await import(path.join(SRC_DIR, 'cursor-store.mjs'));
+const { resolveDbPaths } = await import(path.join(SRC_DIR, 'db-paths.mjs'));
 const {
   ipcAvailable, dslFind, setSockPath, getSockPath,
 } = await import(path.join(SRC_DIR, 'ipc-client.mjs'));
+const { normalizeConstraints } = await import(path.join(SRC_DIR, 'normalize-constraints.mjs'));
 
 const { FileFinder } = await resolveFffNode();
 const NAME = path.basename(process.argv[1] || 'fffind.mjs');
 const cursors = createStore('fffind-cu' + 'rsors.json');
-
-// ---------------------------------------------------------------------------
-// DB path resolution
-// ---------------------------------------------------------------------------
-
-function resolveDbPaths(basePath) {
-  let frecencyDbPath = process.env.FFF_FRECENCY_DB ?? undefined;
-  let historyDbPath = process.env.FFF_HISTORY_DB ?? undefined;
-
-  if (!frecencyDbPath) {
-    const autoBase = path.join(basePath, '.local/share/fff/frecency');
-    try { if (fs.statSync(autoBase).isDirectory()) frecencyDbPath = autoBase; } catch {}
-  }
-  if (!frecencyDbPath) {
-    const autoHome = path.join(homedir(), '.local/share/fff/frecency');
-    try { if (fs.statSync(autoHome).isDirectory()) frecencyDbPath = autoHome; } catch {}
-  }
-  if (!historyDbPath) {
-    const autoBase = path.join(basePath, '.local/share/fff/history');
-    try { if (fs.statSync(autoBase).isDirectory()) historyDbPath = autoBase; } catch {}
-  }
-  if (!historyDbPath) {
-    const autoHome = path.join(homedir(), '.local/share/fff/history');
-    try { if (fs.statSync(autoHome).isDirectory()) historyDbPath = autoHome; } catch {}
-  }
-  return { frecencyDbPath, historyDbPath };
-}
 
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -81,7 +55,11 @@ function parseArgs(argv) {
       case '--help': showHelp(); break;
       case '--base': result.basePath = argv[++i]; break;
       case '-c': case '--constraints': result.constraints = argv[++i]; break;
-      case '-l': case '--limit': result.limit = parseInt(argv[++i], 10); break;
+      case '-l': case '--limit': {
+        const n = parseInt(argv[++i], 10);
+        if (Number.isNaN(n)) { console.error(`${NAME}: --limit requires a number`); process.exit(1); }
+        result.limit = n; break;
+      }
       case '-n': case '--cursor': result.cursor = argv[++i]; break;
       case '--frecency-db': result.frecencyDbPath = argv[++i]; break;
       case '--history-db': result.historyDbPath = argv[++i]; break;
@@ -102,31 +80,9 @@ function parseArgs(argv) {
 // Query building
 // ---------------------------------------------------------------------------
 
-function normalizePathConstraint(s) {
-  let t = s.trim();
-  if (!t || t === '.' || t === './') return null;
-  if (t.startsWith('./')) t = t.slice(2);
-  const m = t.match(/^(.*)\/\*\*(?:\/\*)?$/);
-  if (m && m[1] && !/[*?[{]/.test(m[1])) return `${m[1]}/`;
-  if (t.startsWith('/') || t.endsWith('/')) return t;
-  if (/[*?[{]/.test(t)) return t;
-  const last = t.split('/').pop() ?? '';
-  if (/\.[a-zA-Z][a-zA-Z0-9]{0,9}$/.test(last)) return t;
-  return `${t}/`;
-}
-
 function buildQuery(constraints, pattern) {
-  const parts = [];
-  if (constraints) {
-    for (const term of constraints.split(/[,\s]+/).map(s => s.trim()).filter(Boolean)) {
-      const neg = term.startsWith('!');
-      const raw = neg ? term.slice(1) : term;
-      const n = normalizePathConstraint(raw);
-      if (n) parts.push(neg ? `!${n}` : n);
-    }
-  }
-  parts.push(pattern);
-  return parts.join(' ');
+  const normConstraints = normalizeConstraints(constraints);
+  return normConstraints ? `${normConstraints} ${pattern}` : pattern;
 }
 
 // ---------------------------------------------------------------------------
@@ -144,10 +100,12 @@ function fffFileAnnotation(item) {
   return '';
 }
 
-function renderOutput(result, effectiveLimit, pageIndex) {
+function renderOutput(result, effectiveLimit, pageIndex, basePath) {
+  const root = result._basePath ?? basePath ?? '';
+  const prefix = root ? root.replace(/\/$/, '') + '/' : '';
   const shown = result.items?.slice(0, effectiveLimit) ?? [];
   console.log(`\nFound ${result.totalMatched ?? 0} matches across ${result.totalFiles ?? '?'} indexed files\n`);
-  for (const item of shown) console.log(`${item.relativePath}${fffFileAnnotation(item)}`);
+  for (const item of shown) console.log(`${prefix}${item.relativePath}${fffFileAnnotation(item)}`);
 
   const shownSoFar = pageIndex * effectiveLimit + (result.items?.length ?? 0);
   const hasMore = (result.items?.length ?? 0) >= effectiveLimit && (result.totalMatched ?? 0) > shownSoFar;
@@ -244,7 +202,7 @@ const pageIndex = viaDaemon
   ? Math.max(0, pageNum - 1)
   : ((pageNum === 1) ? 0 : (cursors.retrieve(cursors.makeQueryKey(args.pattern, args.constraints, args.limit), pageNum)?.pageIndex ?? 0));
 
-const meta = renderOutput(result, effectiveLimit, pageIndex);
+const meta = renderOutput(result, effectiveLimit, pageIndex, args.basePath);
 
 if (meta.nextPageIndex !== null) {
   const nextPage = pageNum + 1;

@@ -1,8 +1,8 @@
 # fff-multi-grep
 
-OR-logic multi-pattern content search using SIMD-accelerated Aho-Corasick matching. Faster than regex alternation (`foo|bar|baz`) for literal text searches because it uses a single SIMD scan instead of backtracking.
+OR-logic multi-pattern content search using SIMD-accelerated Aho-Corasick matching. Faster than regex alternation used by `ffgrep` (`foo|bar|baz`) for literal text searches because it uses a single SIMD scan instead of backtracking.
 
-"Daemon Mode" is when `fff-multi-grep` connects to a running `fff-daemon` socket for queries. In "Standalone", or Non-Daemon Mode, `fff-multi-grep` will scan before each query resulting which will affect performance of returned results.
+"Daemon Mode" is when `fff-multi-grep` connects to a running `fff-daemon` socket for queries. In "Standalone", or Non-Daemon Mode, `fff-multi-grep` will scan before each query resulting which will affect performance returning results.
 
 
 ## Usage
@@ -18,7 +18,7 @@ fff-multi-grep <p1,p2,...> [options]
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `-c`, `--constraints` | string | — | Path file constraints (e.g. `"*.ts !test/"`) |
-| `-i`, `--ignore-case` | flag | false | Force case-insensitive matching (default: smartCase|
+| `-i`, `--ignore-case` | flag | false | Force case-insensitive matching (default: smartCase) |
 | `--context` | number | 0 | Lines of context before **and** after each match. Sets both `--before-context` and `--after-context`. |
 | `-b`, `--before-context` | number | 0 | Lines to show before each match |
 | `-a`, `--after-context` | number | 0 | Lines to show after each match |
@@ -40,13 +40,13 @@ fff-multi-grep <p1,p2,...> [options]
 |---|---|
 | `FFF_FRECENCY_DB` | Override frecency database path |
 | `FFF_HISTORY_DB` | Override query history database path |
-| `FFF_CURSORS_DIR` | Cursor storage directory (default: `/tmp`) |
+| `FFF_CURSORS_DIR` | Cursor storage directory (default: `~/.local/cache/fff/cursors`) |
 | `FFF_DAEMON_SOCK` | Unix socket path for `fff-daemon` (default: `/tmp/fff.sock`). Overridden by `--sock` |
 | `FFF_NODE_PATH` | Override `@ff-labs/fff-node` module path |
 
 The CLI auto-detects databases in this order:
-1. `{basePath}/.local/share/fff/{frecency,history}` (project-local)
-2. `~/.local/share/fff/{frecency,history}` (user home)
+1. `{basePath}/.fff/{frecency,history}` (project-local)
+2. `~/.local/cache/fff/{frecency,history}` (user home)
 
 ## Daemon mode
 
@@ -75,12 +75,14 @@ If `fff-daemon` is running for `--base`, `fff-multi-grep` connects via Unix doma
 
 ### Single pattern
 
+> **Note:** Matched paths are always printed as full paths, prefixed with the `basePath`.
+
 ```bash
-fff-multi-grep "registerCommand" --base /Users/jeffrey/.pi/agent --limit 3
+fff-multi-grep "registerCommand" --base ~/projects/my-project --limit 3
 ```
 
 ```
-.local/lib/ffgrep.md
+~/projects/my-project/docs/ffgrep.md
   51: ffgrep "registerCommand" --limit 5
   56: 537: pi.registerCommand("org-cli-info", {
   59: 10: pi.registerCommand("exit", {
@@ -90,19 +92,21 @@ Matched 5 lines across 2735 files searched (2735 eligible)
 
 ### Multiple patterns (the sweet spot)
 
+> **Note:** Matched paths are always printed as full paths, prefixed with the `basePath`.
+
 ```bash
 fff-multi-grep "registerCommand,registerTool" \
-  --base /Users/jeffrey/.pi/agent \
+  --base ~/projects/my-project \
   --constraints "extensions" \
   --limit 5
 ```
 
 ```
-.local/lib/ffgrep.md
+~/projects/my-project/docs/ffgrep.md
   51: ffgrep "registerCommand" --limit 5
   56: 537: pi.registerCommand("org-cli-info", {
   59: 10: pi.registerCommand("exit", {
-  67: ffgrep "registerTool" --path "extensions/emacs-org-cli.ts" --context 2 --limit 5
+  67: ffgrep "registerTool" --context 2 --limit 5
  113: ffgrep "registerCommand|registerTool" --literal --limit 3
 
 Matched 5 lines across 22 files searched (22 eligible)
@@ -110,15 +114,17 @@ Matched 5 lines across 22 files searched (22 eligible)
 
 ### Naming convention variants
 
+> **Note:** Matched paths are always printed as full paths, prefixed with the `basePath`.
+
 ```bash
 fff-multi-grep "TypeDecorator,TypeEngine" \
-  --base /Users/jeffrey/.pi/agent/.local/share/dedoc \
-  --constraints "sqlalchemy/core" \
+  --base ~/projects/my-project \
+  --constraints "models/core" \
   --limit 3
 ```
 
 ```
-docsets/sqlalchemy/changelog/changelog_01.html
+~/projects/my-project/docsets/sqlalchemy/changelog/changelog_01.html
   15: types types types! still weren't working….have to use TypeDecorator again :(
  163: overhaul to the construction of the types system...
 ```
@@ -154,11 +160,46 @@ fff-multi-grep "a,b,c" --cursor 2 --limit 50
 ```
 
 Page numbers are independent per `patterns|constraints|limit` namespace.
-Cursor state is stored in `${FFF_CURSORS_DIR:-/tmp}/fff-multi-grep-cursors.json`
+Cursor state is stored in `${FFF_CURSORS_DIR:-~/.local/cache/fff/cursors}/fff-multi-grep-cursors.json`
 and expires after 24 hours or when the store exceeds 200 entries.
+
+## `--constraints` examples
+
+Constraints are normalized before being sent to the search engine. Bare directory names
+are expanded to recursive globs, glob patterns and file extensions pass through as-is,
+and consecutive bare-dir constraints are grouped into a single brace group for better
+engine performance. Brace groups with commas are always preserved as-is.
+
+| Constraint | Normalized to | Meaning |
+|---|---|---|
+| `src` | `src/**` | All files under `src/` recursively |
+| `src/` | `src/**` | Same as above (trailing `/` stripped) |
+| `src/**` | `src/**` | Same as above (already a glob) |
+| `src/**/tests` | `src/**/tests/**` | Any `tests/` dir anywhere under `src/` |
+| `*.ts` | `*.ts` | Only `.ts` files |
+| `*.{ts,tsx}` | `*.{ts,tsx}` | Only `.ts` and `.tsx` files |
+| `!node_modules/` | `!node_modules/**` | Exclude `node_modules/` |
+| `!*.min.js` | `!*.min.js` | Exclude minified JS files |
+| `python pydantic` | `{python/**,pydantic/**}` | Under `python/` **or** `pydantic/` |
+| `python pydantic !pydantic/**/api` | `{python/**,pydantic/**} !pydantic/**/api/**` | Under `python/` **or** `pydantic/`, but not `pydantic/api/` or `pydantic/foo/api/` |
+| `{python/**,pydantic/**}` | `{python/**,pydantic/**}` | Passed through unchanged |
+| `src/ !src/test/` | `{src/**} !src/test/**` | Under `src/` but not `src/test/` |
+| `./docs` | `docs/**` | Leading `./` is stripped |
+
+Constraints are space-separated (AND logic). Do not use commas — commas inside `{...}` brace groups are part of the glob syntax and must be preserved.
+
+```bash
+# Only .ts and .tsx files, excluding test directories
+fff-multi-grep "createElement,createElementNS" -c '*.{ts,tsx} !test/'
+
+# Under src/ but not under src/generated/
+fff-multi-grep "TODO,FIXME" -c 'src/ !src/generated/'
+```
 
 ## Important notes
 
 - **Patterns are always literal** — there is no `--regex` flag
 - **Include all naming-convention variants** you care about: `foo_bar`, `fooBar`, `FooBar`
 - Use `--constraints` for file filtering
+- Bare directory names in constraints are auto-expanded to recursive globs (`src` → `src/**`)
+- Negate constraints with `!` (e.g. `!node_modules/`)

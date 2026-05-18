@@ -133,7 +133,7 @@ function showHelp(exitCode = 0) {
     sink("  --ai-mode                         Enable AI-agent optimizations");
 
     sink();
-    sink("Advanced Options (see documenation for details):");
+    sink("Advanced Options (see documentation for details):");
     sink("  --frecency-db <path>              Frecency DB");
     sink("  --history-db <path>               History DB");
     sink("  --log-file-path <path>            Tracing log file path");
@@ -202,15 +202,24 @@ function parseArgs(argv) {
             case "--log-level":
                 result.logLevel = argv[++i];
                 break;
-            case "--cache-budget-max-files":
-                result.cacheBudgetMaxFiles = parseInt(argv[++i], 10) || 0;
+            case "--cache-budget-max-files": {
+                const n = parseInt(argv[++i], 10);
+                if (Number.isNaN(n)) { console.error(`${NAME}: --cache-budget-max-files requires a number`); process.exit(1); }
+                result.cacheBudgetMaxFiles = n || 0;
                 break;
-            case "--cache-budget-max-bytes":
-                result.cacheBudgetMaxBytes = parseInt(argv[++i], 10) || 0;
+            }
+            case "--cache-budget-max-bytes": {
+                const n = parseInt(argv[++i], 10);
+                if (Number.isNaN(n)) { console.error(`${NAME}: --cache-budget-max-bytes requires a number`); process.exit(1); }
+                result.cacheBudgetMaxBytes = n || 0;
                 break;
-            case "--cache-budget-max-file-size":
-                result.cacheBudgetMaxFileSize = parseInt(argv[++i], 10) || 0;
+            }
+            case "--cache-budget-max-file-size": {
+                const n = parseInt(argv[++i], 10);
+                if (Number.isNaN(n)) { console.error(`${NAME}: --cache-budget-max-file-size requires a number`); process.exit(1); }
+                result.cacheBudgetMaxFileSize = n || 0;
                 break;
+            }
             case "--disable-content-indexing":
                 result.disableContentIndexing = true;
                 disableContentIndexingExplicit = true;
@@ -315,6 +324,16 @@ function resolveDbPaths(basePath) {
 const directory = args.directory || process.cwd();
 const { frecencyDbPath, historyDbPath } = resolveDbPaths(directory);
 
+// ---------------------------------------------------------------------------
+// DB state
+// ---------------------------------------------------------------------------
+
+const dbInfo = [];
+const fdb = args.frecencyDbPath ?? frecencyDbPath;
+const hdb = args.historyDbPath ?? historyDbPath;
+if (fdb) dbInfo.push(`frecency: ${fdb}`);
+if (hdb) dbInfo.push(`history: ${hdb}`);
+
 function buildFinderOpts(disableWatch) {
     const opts = {
         basePath: directory,
@@ -378,12 +397,6 @@ async function recreateFinder(newDisableWatch) {
     announceWatching(directory, currentDisableWatch);
 }
 
-const dbInfo = [];
-const fdb = args.frecencyDbPath ?? frecencyDbPath;
-const hdb = args.historyDbPath ?? historyDbPath;
-if (fdb) dbInfo.push(`frecency: ${fdb}`);
-if (hdb) dbInfo.push(`history: ${hdb}`);
-
 finder = await createFinder(currentDisableWatch);
 
 // ---------------------------------------------------------------------------
@@ -415,7 +428,7 @@ const handlers = {
     async find({ query, pageIndex = 0, pageSize = 30 }) {
         const r = finder.fileSearch(query, { pageIndex, pageSize });
         if (!r.ok) throw new Error(r.error);
-        return serialiseResult(r.value);
+        return { ...serialiseResult(r.value), _basePath: directory };
     },
 
     async grep({
@@ -437,7 +450,7 @@ const handlers = {
             classifyDefinitions: true,
         });
         if (!r.ok) throw new Error(r.error);
-        return serialiseResult(r.value);
+        return { ...serialiseResult(r.value), _basePath: directory };
     },
 
     async "multi-grep"({
@@ -460,7 +473,7 @@ const handlers = {
             classifyDefinitions: true,
         });
         if (!r.ok) throw new Error(r.error);
-        return serialiseResult(r.value);
+        return { ...serialiseResult(r.value), _basePath: directory };
     },
 
     async scan() {

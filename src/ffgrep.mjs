@@ -9,45 +9,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { homedir } from 'node:os';
 
 const SRC_DIR = path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)));
 const { resolveFffNode } = await import(path.join(SRC_DIR, 'resolve-fff.mjs'));
 const { createStore } = await import(path.join(SRC_DIR, 'cursor-store.mjs'));
+const { resolveDbPaths } = await import(path.join(SRC_DIR, 'db-paths.mjs'));
 const {
   ipcAvailable, dslGrep, setSockPath, getSockPath,
 } = await import(path.join(SRC_DIR, 'ipc-client.mjs'));
+const { formatGrepOutput } = await import(path.join(SRC_DIR, 'grep-format.mjs'));
+const { normalizeConstraints } = await import(path.join(SRC_DIR, 'normalize-constraints.mjs'));
 
 const { FileFinder } = await resolveFffNode();
 const NAME = path.basename(process.argv[1] || 'ffgrep.mjs');
 const cursors = createStore('ffgrep-cu' + 'rsors.json');
-
-// ---------------------------------------------------------------------------
-// DB path resolution
-// ---------------------------------------------------------------------------
-
-function resolveDbPaths(basePath) {
-  let frecencyDbPath = process.env.FFF_FRECENCY_DB ?? undefined;
-  let historyDbPath = process.env.FFF_HISTORY_DB ?? undefined;
-
-  if (!frecencyDbPath) {
-    const autoBase = path.join(basePath, '.local/share/fff/frecency');
-    try { if (fs.statSync(autoBase).isDirectory()) frecencyDbPath = autoBase; } catch {}
-  }
-  if (!frecencyDbPath) {
-    const autoHome = path.join(homedir(), '.local/share/fff/frecency');
-    try { if (fs.statSync(autoHome).isDirectory()) frecencyDbPath = autoHome; } catch {}
-  }
-  if (!historyDbPath) {
-    const autoBase = path.join(basePath, '.local/share/fff/history');
-    try { if (fs.statSync(autoBase).isDirectory()) historyDbPath = autoBase; } catch {}
-  }
-  if (!historyDbPath) {
-    const autoHome = path.join(homedir(), '.local/share/fff/history');
-    try { if (fs.statSync(autoHome).isDirectory()) historyDbPath = autoHome; } catch {}
-  }
-  return { frecencyDbPath, historyDbPath };
-}
 
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -96,11 +71,24 @@ function parseArgs(argv) {
       case '--literal': result.literal = true; break;
       case '--context': {
         const n = parseInt(argv[++i], 10);
+        if (Number.isNaN(n)) { console.error(`${NAME}: --context requires a number`); process.exit(1); }
         result.beforeContext = n; result.afterContext = n; break;
       }
-      case '-b': case '--before-context': result.beforeContext = parseInt(argv[++i], 10); break;
-      case '-a': case '--after-context': result.afterContext = parseInt(argv[++i], 10); break;
-      case '-l': case '--limit': result.limit = parseInt(argv[++i], 10); break;
+      case '-b': case '--before-context': {
+        const n = parseInt(argv[++i], 10);
+        if (Number.isNaN(n)) { console.error(`${NAME}: --before-context requires a number`); process.exit(1); }
+        result.beforeContext = n; break;
+      }
+      case '-a': case '--after-context': {
+        const n = parseInt(argv[++i], 10);
+        if (Number.isNaN(n)) { console.error(`${NAME}: --after-context requires a number`); process.exit(1); }
+        result.afterContext = n; break;
+      }
+      case '-l': case '--limit': {
+        const n = parseInt(argv[++i], 10);
+        if (Number.isNaN(n)) { console.error(`${NAME}: --limit requires a number`); process.exit(1); }
+        result.limit = n; break;
+      }
       case '-n': case '--cursor': result.cursor = argv[++i]; break;
       case '--base': result.basePath = argv[++i]; break;
       case '--frecency-db': result.frecencyDbPath = argv[++i]; break;
@@ -123,79 +111,12 @@ function parseArgs(argv) {
 // Query building
 // ---------------------------------------------------------------------------
 
-function normalizePathConstraint(s) {
-  let t = s.trim();
-  if (!t || t === '.' || t === './') return null;
-  if (t.startsWith('./')) t = t.slice(2);
-  const m = t.match(/^(.*)\/\*\*(?:\/\*)?$/);
-  if (m && m[1] && !/[*?[{]/.test(m[1])) return `${m[1]}/`;
-  if (t.startsWith('/') || t.endsWith('/')) return t;
-  if (/[*?[{]/.test(t)) return t;
-  const last = t.split('/').pop() ?? '';
-  if (/\.[a-zA-Z][a-zA-Z0-9]{0,9}$/.test(last)) return t;
-  return `${t}/`;
-}
-
-function buildQuery(constraints, pattern) {
-  const parts = [];
-  if (constraints) {
-    for (const term of constraints.split(/[,\s]+/).map(s => s.trim()).filter(Boolean)) {
-      const neg = term.startsWith('!');
-      const raw = neg ? term.slice(1) : term;
-      const n = normalizePathConstraint(raw);
-      if (n) parts.push(neg ? `!${n}` : n);
-    }
-  }
-  parts.push(pattern);
-  return parts.join(' ');
-}
-
 function resolveGrepMode(pattern, literal) {
   if (literal === true) return 'plain';
   if (literal === false) return 'regex';
   const hasMeta = pattern !== pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   if (hasMeta) { try { new RegExp(pattern); return 'regex'; } catch { return 'plain'; } }
   return 'plain';
-}
-
-// ---------------------------------------------------------------------------
-// Output formatting
-// ---------------------------------------------------------------------------
-
-const GREP_MAX_LINE_LENGTH = 500;
-function truncateLine(line, max = GREP_MAX_LINE_LENGTH) {
-  const t = line.trim();
-  return t.length <= max ? t : `${t.slice(0, max)}...`;
-}
-function fffFileAnnotation(item) {
-  const g = item.gitStatus;
-  return (g && g !== 'clean' && g !== 'unknown' && g !== '') ? `  [${g} in git]` : '';
-}
-function formatGrepOutput(result) {
-  if (result.items.length === 0) return 'No matches found';
-  const lines = [];
-  let currentFile = '';
-  for (const match of result.items) {
-    if (match.relativePath !== currentFile) {
-      if (lines.length > 0) lines.push('');
-      currentFile = match.relativePath;
-      lines.push(`${currentFile}${fffFileAnnotation(match)}`);
-    }
-    if (!match.contextBefore && !match.contextAfter) {
-      lines.push(` ${match.lineNumber}: ${truncateLine(match.lineContent)}`);
-      continue;
-    }
-    match.contextBefore?.forEach((line, i) => {
-      const ln = match.lineNumber - match.contextBefore.length + i;
-      lines.push(` ${ln}- ${truncateLine(line)}`);
-    });
-    lines.push(` ${match.lineNumber}: ${truncateLine(match.lineContent)}`);
-    match.contextAfter?.forEach((line, i) => {
-      const ln = match.lineNumber + 1 + i;
-      lines.push(` ${ln}- ${truncateLine(line)}`);
-    });
-  }
-  return lines.join('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -239,7 +160,8 @@ async function runLocal(args) {
   }
 
   const mode = resolveGrepMode(args.pattern, args.literal);
-  const query = buildQuery(args.constraints, args.pattern);
+  const normalizedConstraints = normalizeConstraints(args.constraints);
+  const query = normalizedConstraints ? `${normalizedConstraints} ${args.pattern}` : args.pattern;
   console.log(`→ Grepping: "${query}" (mode: ${mode})`);
 
   const queryKey = cursors.makeQueryKey(args.pattern, args.constraints, args.limit);
@@ -276,7 +198,8 @@ if (args.sockPath) setSockPath(args.sockPath);
 if (!args.pattern) showHelp(1);
 
 const mode = resolveGrepMode(args.pattern, args.literal);
-const query = buildQuery(args.constraints, args.pattern);
+const normalizedConstraints = normalizeConstraints(args.constraints);
+const query = normalizedConstraints ? `${normalizedConstraints} ${args.pattern}` : args.pattern;
 
 let result;
 let viaDaemon = false;
@@ -316,12 +239,12 @@ if (!result) {
   result = await runLocal(args);
 }
 
-let output = formatGrepOutput(result);
+let output = formatGrepOutput(result, args.basePath);
 const notices = [];
 if (result.regexFallbackError) notices.push(`Invalid regex: ${result.regexFallbackError}, used literal match`);
 if (result.nextCursor || result.nextCursor === null) {
   // Daemon returns nextCursor as plain object; local returns native cursor object
-  const nextOffset = result.nextCursor?._offset ?? result.nextCursor?._offset ?? null;
+  const nextOffset = result.nextCursor?._offset ?? null;
   if (nextOffset !== null) {
     const nextPage = parseInt(args.cursor || '1', 10) + 1;
     const queryKey = cursors.makeQueryKey(args.pattern, args.constraints, args.limit);

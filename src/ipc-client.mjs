@@ -102,12 +102,3 @@ export function dslHealth() {
 export function dslScan() {
   return dslRequest('scan', {});
 }
-
-/**
- * Build the serialisable cursor representation to send to the daemon.
- */
-export function serialiseCursor(cursor) {
-  if (!cursor) return null;
-  const raw = cursor.__brand === 'GrepCursor' ? cursor._offset : cursor;
-  return { _offset: typeof raw === 'number' ? raw : 0 };
-}

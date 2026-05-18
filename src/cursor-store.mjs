@@ -24,8 +24,10 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { homedir } from 'node:os';
 
-const CURSOR_DIR = process.env.FFF_CURSORS_DIR || '/tmp';
+const DEFAULT_CURSOR_DIR = path.join(homedir(), '.local/cache/fff/cursors');
+const CURSOR_DIR = process.env.FFF_CURSORS_DIR || DEFAULT_CURSOR_DIR;
 
 export function createStore(filename) {
   const file = path.join(CURSOR_DIR, filename);
@@ -37,7 +39,9 @@ export function createStore(filename) {
 
   function save(data) {
     fs.mkdirSync(CURSOR_DIR, { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(data, null, 2));
+    const tmp = file + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+    fs.renameSync(tmp, file);
   }
 
   function prune(data) {
