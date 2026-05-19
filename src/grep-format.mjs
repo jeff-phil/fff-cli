@@ -11,7 +11,7 @@ export function truncateLine(line, max = GREP_MAX_LINE_LENGTH) {
 
 export function fffFileAnnotation(item) {
   const g = item.gitStatus;
-  return (g && g !== 'clean' && g !== 'unknown' && g !== '') ? `  [${g} in git]` : '';
+  return g && g !== 'clean' && g !== 'unknown' && g !== '' ? `  [${g} in git]` : '';
 }
 
 export function formatGrepOutput(result, basePath) {

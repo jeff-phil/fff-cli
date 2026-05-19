@@ -8,8 +8,8 @@
  */
 
 import fs from 'node:fs';
-import path from 'node:path';
 import { homedir } from 'node:os';
+import path from 'node:path';
 
 export function resolveDbPaths(basePath) {
   let frecencyDbPath = process.env.FFF_FRECENCY_DB ?? undefined;
@@ -17,7 +17,11 @@ export function resolveDbPaths(basePath) {
 
   if (!frecencyDbPath) {
     const autoBase = path.join(basePath, '.fff/frecency');
-    try { if (fs.statSync(autoBase).isDirectory()) frecencyDbPath = autoBase; } catch {}
+    try {
+      if (fs.statSync(autoBase).isDirectory()) frecencyDbPath = autoBase;
+    } catch {
+      /* ignore */
+    }
   }
   if (!frecencyDbPath) {
     const autoHome = path.join(homedir(), '.local/cache/fff/frecency');
@@ -26,7 +30,11 @@ export function resolveDbPaths(basePath) {
   }
   if (!historyDbPath) {
     const autoBase = path.join(basePath, '.fff/history');
-    try { if (fs.statSync(autoBase).isDirectory()) historyDbPath = autoBase; } catch {}
+    try {
+      if (fs.statSync(autoBase).isDirectory()) historyDbPath = autoBase;
+    } catch {
+      /* ignore */
+    }
   }
   if (!historyDbPath) {
     const autoHome = path.join(homedir(), '.local/cache/fff/history');

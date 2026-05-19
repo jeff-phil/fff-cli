@@ -11,10 +11,12 @@ const SRC_DIR = path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)));
 const { resolveFffNode } = await import(path.join(SRC_DIR, 'resolve-fff.mjs'));
 const { createStore } = await import(path.join(SRC_DIR, 'cursor-store.mjs'));
 const { resolveDbPaths } = await import(path.join(SRC_DIR, 'db-paths.mjs'));
-const {
-  ipcAvailable, dslFind, setSockPath, getSockPath,
-} = await import(path.join(SRC_DIR, 'ipc-client.mjs'));
-const { normalizeConstraints } = await import(path.join(SRC_DIR, 'normalize-constraints.mjs'));
+const { ipcAvailable, dslFind, setSockPath, getSockPath } = await import(
+  path.join(SRC_DIR, 'ipc-client.mjs')
+);
+const { normalizeConstraints } = await import(
+  path.join(SRC_DIR, 'normalize-constraints.mjs')
+);
 
 const { FileFinder } = await resolveFffNode();
 const NAME = path.basename(process.argv[1] || 'fffind.mjs');
@@ -32,7 +34,9 @@ function showHelp(exitCode = 0) {
   sink('  -l, --limit <N>           Max results per page (default: 30)');
   sink('  -p, --page-size <N>       Alias for --limit (default: 30)');
   sink('  -n, --cursor <id>         Page number (default: 1)');
-  sink('  -s, --sock <path>         Daemon socket (default: $FFF_DAEMON_SOCK or /tmp/fff.sock)');
+  sink(
+    '  -s, --sock <path>         Daemon socket (default: $FFF_DAEMON_SOCK or /tmp/fff.sock)',
+  );
   sink('');
   sink('Standalone Options (Non-Daemon mode):');
   sink('      --base <path>         Base directory (forces standalone mode)');
@@ -45,34 +49,70 @@ function showHelp(exitCode = 0) {
 
 function parseArgs(argv) {
   const result = {
-    pattern: undefined, basePath: process.cwd(), constraints: undefined,
-    limit: 30, cursor: undefined,
-    frecencyDbPath: undefined, historyDbPath: undefined, sockPath: undefined,
+    pattern: undefined,
+    basePath: process.cwd(),
+    constraints: undefined,
+    limit: 30,
+    cursor: undefined,
+    frecencyDbPath: undefined,
+    historyDbPath: undefined,
+    sockPath: undefined,
     basePathExplicit: false,
   };
   const remaining = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     switch (arg) {
-      case '--help': showHelp(); break;
-      case '--base': result.basePath = argv[++i]; result.basePathExplicit = true; break;
-      case '-c': case '--constraints': result.constraints = argv[++i]; break;
-      case '-l': case '--limit': {
+      case '--help':
+        showHelp();
+        break;
+      case '--base':
+        result.basePath = argv[++i];
+        result.basePathExplicit = true;
+        break;
+      case '-c':
+      case '--constraints':
+        result.constraints = argv[++i];
+        break;
+      case '-l':
+      case '--limit': {
         const n = parseInt(argv[++i], 10);
-        if (Number.isNaN(n)) { console.error(`${NAME}: --limit requires a number`); process.exit(1); }
-        result.limit = n; break;
+        if (Number.isNaN(n)) {
+          console.error(`${NAME}: --limit requires a number`);
+          process.exit(1);
+        }
+        result.limit = n;
+        break;
       }
-      case '-p': case '--page-size': {
+      case '-p':
+      case '--page-size': {
         const n = parseInt(argv[++i], 10);
-        if (Number.isNaN(n)) { console.error(`${NAME}: --page-size requires a number`); process.exit(1); }
-        result.limit = n; break;
+        if (Number.isNaN(n)) {
+          console.error(`${NAME}: --page-size requires a number`);
+          process.exit(1);
+        }
+        result.limit = n;
+        break;
       }
-      case '-n': case '--cursor': result.cursor = argv[++i]; break;
-      case '--frecency-db': result.frecencyDbPath = argv[++i]; break;
-      case '--history-db': result.historyDbPath = argv[++i]; break;
-      case '-s': case '--sock': result.sockPath = argv[++i]; break;
+      case '-n':
+      case '--cursor':
+        result.cursor = argv[++i];
+        break;
+      case '--frecency-db':
+        result.frecencyDbPath = argv[++i];
+        break;
+      case '--history-db':
+        result.historyDbPath = argv[++i];
+        break;
+      case '-s':
+      case '--sock':
+        result.sockPath = argv[++i];
+        break;
       default:
-        if (arg.startsWith('-')) { console.error(`${NAME}: unknown option: ${arg}`); process.exit(1); }
+        if (arg.startsWith('-')) {
+          console.error(`${NAME}: unknown option: ${arg}`);
+          process.exit(1);
+        }
         remaining.push(arg);
     }
   }
@@ -111,17 +151,24 @@ function renderOutput(result, effectiveLimit, pageIndex, basePath) {
   const root = result._basePath ?? basePath ?? '';
   const prefix = root ? root.replace(/\/$/, '') + '/' : '';
   const shown = result.items?.slice(0, effectiveLimit) ?? [];
-  console.log(`\nFound ${result.totalMatched ?? 0} matches across ${result.totalFiles ?? '?'} indexed files\n`);
-  for (const item of shown) console.log(`${prefix}${item.relativePath}${fffFileAnnotation(item)}`);
+  console.log(
+    `\nFound ${result.totalMatched ?? 0} matches across ${result.totalFiles ?? '?'} indexed files\n`,
+  );
+  for (const item of shown)
+    console.log(`${prefix}${item.relativePath}${fffFileAnnotation(item)}`);
 
   const shownSoFar = pageIndex * effectiveLimit + (result.items?.length ?? 0);
-  const hasMore = (result.items?.length ?? 0) >= effectiveLimit && (result.totalMatched ?? 0) > shownSoFar;
+  const hasMore =
+    (result.items?.length ?? 0) >= effectiveLimit &&
+    (result.totalMatched ?? 0) > shownSoFar;
   const remaining = (result.totalMatched ?? 0) - shownSoFar;
 
   const notices = [];
   if (hasMore) {
     const nextPage = Math.floor(shownSoFar / effectiveLimit) + 1;
-    notices.push(`${remaining} more match${remaining === 1 ? '' : 'es'} available. cursor="${nextPage}" to continue`);
+    notices.push(
+      `${remaining} more match${remaining === 1 ? '' : 'es'} available. cursor="${nextPage}" to continue`,
+    );
   }
   if (notices.length > 0) console.log(`\n[${notices.join('. ')}]`);
   return { nextPageIndex: hasMore ? pageIndex + 1 : null };
@@ -135,18 +182,25 @@ async function runLocal(args) {
   console.log(`→ Creating FileFinder for: ${args.basePath}`);
   const { frecencyDbPath, historyDbPath } = resolveDbPaths(args.basePath);
   const finderResult = FileFinder.create({
-    basePath: args.basePath, aiMode: true,
+    basePath: args.basePath,
+    aiMode: true,
     frecencyDbPath: args.frecencyDbPath ?? frecencyDbPath,
     historyDbPath: args.historyDbPath ?? historyDbPath,
   });
-  if (!finderResult.ok) { console.error('Failed:', finderResult.error); process.exit(1); }
+  if (!finderResult.ok) {
+    console.error('Failed:', finderResult.error);
+    process.exit(1);
+  }
   const finder = finderResult.value;
 
   console.log('→ Waiting for scan...');
   const scanDone = await finder.waitForScan(30000);
   if (!scanDone.ok || !scanDone.value) console.warn('Scan timeout, proceeding...');
   const progressResult = finder.getScanProgress();
-  if (progressResult.ok) console.log(`  Indexed ${progressResult.value.scannedFilesCount} files${progressResult.value.isScanning ? ' (scanning...)' : ''}`);
+  if (progressResult.ok)
+    console.log(
+      `  Indexed ${progressResult.value.scannedFilesCount} files${progressResult.value.isScanning ? ' (scanning...)' : ''}`,
+    );
   const dbInfo = [];
   if (args.frecencyDbPath ?? frecencyDbPath) dbInfo.push('frecency');
   if (args.historyDbPath ?? historyDbPath) dbInfo.push('history');
@@ -166,7 +220,8 @@ const query = buildQuery(args.constraints, args.pattern);
 const pageNum = parseInt(args.cursor || '1', 10);
 const effectiveLimit = args.limit ?? 30;
 
-let result, viaDaemon = false;
+let result,
+  viaDaemon = false;
 
 if (!args.basePathExplicit) {
   const daemonOk = await ipcAvailable();
@@ -174,15 +229,23 @@ if (!args.basePathExplicit) {
     try {
       console.log(`→ [via daemon ${getSockPath()}] Searching: "${query}"`);
       viaDaemon = true;
-      const stored = cursors.retrieve(cursors.makeQueryKey(args.pattern, args.constraints, args.limit), pageNum);
+      const stored = cursors.retrieve(
+        cursors.makeQueryKey(args.pattern, args.constraints, args.limit),
+        pageNum,
+      );
       if (pageNum !== 1 && !stored) {
-        console.error(`Cursor ${pageNum} not found for this query. Run without --cursor first.`);
+        console.error(
+          `Cursor ${pageNum} not found for this query. Run without --cursor first.`,
+        );
         process.exit(1);
       }
-      const pageIndex = (pageNum === 1) ? 0 : (stored.pageIndex ?? 0);
+      const pageIndex = pageNum === 1 ? 0 : (stored.pageIndex ?? 0);
       result = await dslFind(query, pageIndex, effectiveLimit);
     } catch (e) {
-      console.warn('Daemon request failed, falling back to local:', e.message);
+      console.warn(
+        'Daemon request failed, falling back to standalone local:',
+        e.message,
+      );
       result = null;
       viaDaemon = false;
     }
@@ -191,31 +254,63 @@ if (!args.basePathExplicit) {
 
 if (!result) {
   const finder = await runLocal(args);
-  const stored = cursors.retrieve(cursors.makeQueryKey(args.pattern, args.constraints, args.limit), pageNum);
+  const stored = cursors.retrieve(
+    cursors.makeQueryKey(args.pattern, args.constraints, args.limit),
+    pageNum,
+  );
   if (pageNum === 1) {
-    const searchResult = finder.fileSearch(query, { pageIndex: 0, pageSize: effectiveLimit });
-    if (!searchResult.ok) { console.error('Search failed:', searchResult.error); process.exit(1); }
+    const searchResult = finder.fileSearch(query, {
+      pageIndex: 0,
+      pageSize: effectiveLimit,
+    });
+    if (!searchResult.ok) {
+      console.error('Search failed:', searchResult.error);
+      process.exit(1);
+    }
     result = searchResult.value;
   } else {
     if (!stored) {
-      console.error(`Cursor ${pageNum} not found for this query. Run without --cursor first.`);
+      console.error(
+        `Cursor ${pageNum} not found for this query. Run without --cursor first.`,
+      );
       process.exit(1);
     }
-    const searchResult = finder.fileSearch(query, { pageIndex: stored.pageIndex, pageSize: stored.pageSize });
-    if (!searchResult.ok) { console.error('Search failed:', searchResult.error); process.exit(1); }
+    const searchResult = finder.fileSearch(query, {
+      pageIndex: stored.pageIndex,
+      pageSize: stored.pageSize,
+    });
+    if (!searchResult.ok) {
+      console.error('Search failed:', searchResult.error);
+      process.exit(1);
+    }
     result = searchResult.value;
   }
 }
 
 const pageIndex = viaDaemon
   ? Math.max(0, pageNum - 1)
-  : ((pageNum === 1) ? 0 : (cursors.retrieve(cursors.makeQueryKey(args.pattern, args.constraints, args.limit), pageNum)?.pageIndex ?? 0));
+  : pageNum === 1
+    ? 0
+    : (cursors.retrieve(
+        cursors.makeQueryKey(args.pattern, args.constraints, args.limit),
+        pageNum,
+      )?.pageIndex ?? 0);
 
 const meta = renderOutput(result, effectiveLimit, pageIndex, args.basePath);
 
 if (meta.nextPageIndex !== null) {
   const nextPage = pageNum + 1;
-  cursors.store(cursors.makeQueryKey(args.pattern, args.constraints, args.limit), args.pattern, args.constraints, args.limit, nextPage, {
-    query, pattern: args.pattern, pageSize: effectiveLimit, pageIndex: meta.nextPageIndex,
-  });
+  cursors.store(
+    cursors.makeQueryKey(args.pattern, args.constraints, args.limit),
+    args.pattern,
+    args.constraints,
+    args.limit,
+    nextPage,
+    {
+      query,
+      pattern: args.pattern,
+      pageSize: effectiveLimit,
+      pageIndex: meta.nextPageIndex,
+    },
+  );
 }

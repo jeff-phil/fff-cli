@@ -52,6 +52,8 @@ multiple daemons on different sockets and target them individually using the `--
 
 ### Advanced parameters
 
+| Parameter | Type | Default | Description |
+|---|---|---|---|
 | `--frecency-db` | path | — | Frecency database directory. This parameter overrides the `$FFF_FRECENCY_DB` environment variable, and the default is the base directory where daemon is running under `.fff/frecency/`. Note: Directory must exist to be used, or else daemon is running stateless, use `fff-daemon health` to see if configured. |
 | `--history-db` | path | — | Query history database directory. This parameter overrides the `$FFF_HISTORY_DB` environment variable, and the default is the base directory where daemon is running under `.fff/history/`. Note: Directory must exist to be used, or else daemon is running stateless, use `fff-daemon health` to see if configured. |
 | `--log-file-path` | path | — | Tracing log file path used in debugging the fff library, and used for fff library debugging and monitoring. |

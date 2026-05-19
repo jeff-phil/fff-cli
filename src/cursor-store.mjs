@@ -23,8 +23,8 @@
  */
 
 import fs from 'node:fs';
-import path from 'node:path';
 import { homedir } from 'node:os';
+import path from 'node:path';
 
 const DEFAULT_CURSOR_DIR = path.join(homedir(), '.local/cache/fff/cursors');
 const CURSOR_DIR = process.env.FFF_CURSORS_DIR || DEFAULT_CURSOR_DIR;
@@ -33,8 +33,11 @@ export function createStore(filename) {
   const file = path.join(CURSOR_DIR, filename);
 
   function load() {
-    try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
-    catch { return { queries: {} }; }
+    try {
+      return JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch {
+      return { queries: {} };
+    }
   }
 
   function save(data) {
@@ -72,7 +75,7 @@ export function createStore(filename) {
   }
 
   function makeQueryKey(pattern, constraints, limit, pageSize) {
-    const ps = pageSize != null ? pageSize : 0;
+    const ps = pageSize ?? 0;
     if (ps === 0) return `${pattern}|${constraints || ''}|${limit}`;
     return `${pattern}|${constraints || ''}|${limit}|${ps}`;
   }
@@ -82,7 +85,12 @@ export function createStore(filename) {
     if (!data.queries) data.queries = {};
     let q = data.queries[queryKey];
     if (!q) {
-      q = data.queries[queryKey] = { pattern, constraints, limit, pages: {} };
+      q = data.queries[queryKey] = {
+        pattern,
+        constraints,
+        limit,
+        pages: {},
+      };
     }
     const pageStr = String(pageNumber);
     // Deduplicate: same payload already stored for this query
@@ -105,6 +113,7 @@ export function createStore(filename) {
 
 function payloadsEqual(a, b) {
   if (a.offset !== undefined && b.offset !== undefined) return a.offset === b.offset;
-  if (a.pageIndex !== undefined && b.pageIndex !== undefined) return a.pageIndex === b.pageIndex;
+  if (a.pageIndex !== undefined && b.pageIndex !== undefined)
+    return a.pageIndex === b.pageIndex;
   return false;
 }

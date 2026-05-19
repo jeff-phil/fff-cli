@@ -12,8 +12,21 @@
   "engines": {
     "node": ">=18"
   },
-  "keywords": ["fff", "fast-file-finder", "grep", "find", "fuzzy-search"],
+  "keywords": [
+    "fff",
+    "fast-file-finder",
+    "grep",
+    "find",
+    "fuzzy-search"
+  ],
   "author": "",
   "license": "MIT",
-  "dependencies": {}
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.4.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-simple-import-sort": "^13.0.0",
+    "eslint-plugin-unused-imports": "^4.4.1",
+    "globals": "^17.6.0"
+  }
 }

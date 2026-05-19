@@ -8,9 +8,19 @@ import net from 'node:net';
 export function ipcAvailable() {
   return new Promise((resolve) => {
     const sock = net.connect({ path: getSockPath() });
-    sock.on('connect', () => { sock.destroy(); resolve(true); });
+    sock.on('connect', () => {
+      sock.destroy();
+      resolve(true);
+    });
     sock.on('error', () => resolve(false));
-    sock.setTimeout(200, () => { try { sock.destroy(); } catch {} resolve(false); });
+    sock.setTimeout(200, () => {
+      try {
+        sock.destroy();
+      } catch {
+        /* ignore */
+      }
+      resolve(false);
+    });
   });
 }
 
@@ -36,8 +46,13 @@ export function dslRequest(op, params) {
     function finish(err, result) {
       if (done) return;
       done = true;
-      try { sock.destroy(); } catch {}
-      if (err) reject(err); else resolve(result);
+      try {
+        sock.destroy();
+      } catch {
+        /* ignore */
+      }
+      if (err) reject(err);
+      else resolve(result);
     }
 
     sock.on('connect', () => {
@@ -62,7 +77,8 @@ export function dslRequest(op, params) {
     sock.on('error', (e) => finish(e));
     sock.on('timeout', () => finish(new Error('Daemon timeout')));
     sock.on('close', () => {
-      if (!done && !buf.includes('\n')) finish(new Error('Daemon closed without response'));
+      if (!done && !buf.includes('\n'))
+        finish(new Error('Daemon closed without response'));
     });
   });
 }

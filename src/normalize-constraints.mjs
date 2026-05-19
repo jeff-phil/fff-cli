@@ -18,10 +18,15 @@ export function normalizeConstraints(constraints) {
 
     if (isBraceGroup(raw)) {
       const inner = raw.slice(1, -1);
-      const items = inner.split(',').map(s => s.trim()).filter(Boolean);
+      const items = inner
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
       const normItems = items.map(normalizePath).filter(Boolean);
       if (normItems.length > 0) {
-        normalized.push(isNegated ? `!{${normItems.join(',')}}` : `{${normItems.join(',')}}`);
+        normalized.push(
+          isNegated ? `!{${normItems.join(',')}}` : `{${normItems.join(',')}}`,
+        );
       }
     } else {
       const n = normalizePath(raw);
@@ -87,10 +92,11 @@ function groupBareDirs(normalized) {
   let group = [];
 
   for (const item of normalized) {
-    const isBareDir = !item.startsWith('!')
-      && item.endsWith('/**')
-      && !item.includes('{')
-      && !item.includes(',');
+    const isBareDir =
+      !item.startsWith('!') &&
+      item.endsWith('/**') &&
+      !item.includes('{') &&
+      !item.includes(',');
     if (isBareDir) {
       group.push(item);
     } else {

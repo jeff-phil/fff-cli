@@ -104,7 +104,7 @@ Options:
   -b, --before-context <N>  Lines before each match
   -a, --after-context <N>   Lines after each match
   -l, --limit <N>           Max matches per file (default: 50, max 100)
-  -p, --page-size <N>       Number of matched files per page (default: 50)
+  -p, --page-size <N>       Number of matched lines per page (default: 50)
   -n, --cursor <id>         Page number (default: 1)
   -s, --sock <path>         Daemon socket (default: $FFF_DAEMON_SOCK or /tmp/fff.sock)
 
@@ -146,7 +146,7 @@ Options:
   -b, --before-context <N>  Lines before each match
   -a, --after-context <N>   Lines after each match
   -l, --limit <N>           Max matches per file (default: 50, max 100)
-  -p, --page-size <N>       Number of matched files per page (default: 50)
+  -p, --page-size <N>       Number of matched lines per page (default: 50)
   -n, --cursor <id>         Page number (default: 1)
   -s, --sock <path>         Daemon socket (default: $FFF_DAEMON_SOCK or /tmp/fff.sock)
 
