@@ -167,6 +167,15 @@ function parseArgs(argv) {
 // Local fallback
 // ---------------------------------------------------------------------------
 
+/**
+ * Workaround for a native-library bug where smartCase has no effect.
+ * The library only case-folds when the pattern is all lowercase.
+ * multiGrep uses literal Aho-Corasick matching only, so we always lowercase.
+ */
+function applyIgnoreCase(pattern) {
+  return pattern.toLowerCase();
+}
+
 async function runLocal(args, patterns, pageNum, cursor, normalizedConstraints) {
   console.log(`→ Creating FileFinder for: ${args.basePath}`);
   const { frecencyDbPath, historyDbPath } = resolveDbPaths(args.basePath);
@@ -195,12 +204,16 @@ async function runLocal(args, patterns, pageNum, cursor, normalizedConstraints) 
   if (args.historyDbPath ?? historyDbPath) dbInfo.push('history');
   if (dbInfo.length > 0) console.log(`  Using DBs: ${dbInfo.join(', ')}`);
 
+  const processedPatterns = args.ignoreCase
+    ? patterns.map((p) => applyIgnoreCase(p))
+    : patterns;
+
   console.log(
-    `→ Multi-grepping ${patterns.length} patterns: ${patterns.map((p) => `"${p}"`).join(', ')}`,
+    `→ Multi-grepping ${processedPatterns.length} patterns: ${processedPatterns.map((p) => `"${p}"`).join(', ')}`,
   );
 
   const grepResult = finder.multiGrep({
-    patterns,
+    patterns: processedPatterns,
     constraints: normalizedConstraints,
     maxMatchesPerFile: Math.min(Math.max(1, args.limit), 100),
     pageSize: args.pageSize || 0,
@@ -245,8 +258,11 @@ if (!args.basePathExplicit) {
   const daemonOk = await ipcAvailable();
   if (daemonOk) {
     try {
+      const daemonPatterns = args.ignoreCase
+        ? patterns.map((p) => applyIgnoreCase(p))
+        : patterns;
       console.log(
-        `→ [via daemon ${getSockPath()}] Multi-grepping ${patterns.length} patterns: ${patterns.map((p) => `"${p}"`).join(', ')}`,
+        `→ [via daemon ${getSockPath()}] Multi-grepping ${daemonPatterns.length} patterns: ${daemonPatterns.map((p) => `"${p}"`).join(', ')}`,
       );
       viaDaemon = true;
       const queryKey = cursors.makeQueryKey(
@@ -266,7 +282,7 @@ if (!args.basePathExplicit) {
         }
         cursorRaw = { _offset: stored.offset };
       }
-      result = await dslMultiGrep(patterns, {
+      result = await dslMultiGrep(daemonPatterns, {
         constraints: normalizedConstraints,
         limit: args.limit,
         pageSize: args.pageSize,

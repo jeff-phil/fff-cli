@@ -199,6 +199,16 @@ function resolveGrepMode(pattern, literal) {
   return 'plain';
 }
 
+/**
+ * Workaround for a native-library bug where smartCase has no effect.
+ * The library only case-folds when the pattern is all lowercase.
+ * For regex mode we prepend (?i); for plain mode we lowercase.
+ */
+function applyIgnoreCase(pattern, mode) {
+  if (mode === 'regex') return '(?i)' + pattern;
+  return pattern.toLowerCase();
+}
+
 // ---------------------------------------------------------------------------
 // Wildcard guard
 // ---------------------------------------------------------------------------
@@ -253,9 +263,12 @@ async function runLocal(args) {
 
   const mode = resolveGrepMode(args.pattern, args.literal);
   const normalizedConstraints = normalizeConstraints(args.constraints);
-  const query = normalizedConstraints
-    ? `${normalizedConstraints} ${args.pattern}`
+  const searchPattern = args.ignoreCase
+    ? applyIgnoreCase(args.pattern, mode)
     : args.pattern;
+  const query = normalizedConstraints
+    ? `${normalizedConstraints} ${searchPattern}`
+    : searchPattern;
   console.log(`→ Grepping: "${query}" (mode: ${mode})`);
 
   const queryKey = cursors.makeQueryKey(
@@ -305,9 +318,12 @@ if (!args.pattern) showHelp(1);
 
 const mode = resolveGrepMode(args.pattern, args.literal);
 const normalizedConstraints = normalizeConstraints(args.constraints);
-const query = normalizedConstraints
-  ? `${normalizedConstraints} ${args.pattern}`
+const searchPattern = args.ignoreCase
+  ? applyIgnoreCase(args.pattern, mode)
   : args.pattern;
+const query = normalizedConstraints
+  ? `${normalizedConstraints} ${searchPattern}`
+  : searchPattern;
 
 let result;
 let viaDaemon = false;

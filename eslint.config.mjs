@@ -5,17 +5,19 @@ import unusedImports from 'eslint-plugin-unused-imports';
 import globals from 'globals';
 
 export default [
-  // 1. Global Ignores
+  // Global Ignores
   {
-    ignores: ['node_modules/', 'dist/', 'build/'],
+    ignores: [
+      '{node_modules,dist,build,tmux-sessions,sessions,npm-global,npm,.local}/',
+    ],
   },
 
-  // 2. Recommended JS Rules
+  // Recommended JS Rules
   js.configs.recommended,
 
-  // 3. Main Configuration
+  // Main Configuration
   {
-    files: ['**/*.js', '**/*.mjs', '**/*.cjs'],
+    files: ['**/*.{js,mjs,cjs}'],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
@@ -54,6 +56,6 @@ export default [
     },
   },
 
-  // 4. Prettier (Must be last to override formatting rules)
+  // Prettier (Must be last to override formatting rules)
   eslintConfigPrettier,
 ];
